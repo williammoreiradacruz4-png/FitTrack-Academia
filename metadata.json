@@ -1,0 +1,6 @@
+{
+  "name": "FitTrack Academia",
+  "description": "Ficha de treino interativa para academia com controle de séries, cargas, progresso diário, cronômetro de descanso e upload de imagens por exercício.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,91 @@
+import benchPressImg from '../assets/images/exercise_bench_press_1794677983202.jpg';
+import latPulldownImg from '../assets/images/exercise_lat_pulldown_1794677982771.jpg';
+import squatRackImg from '../assets/images/exercise_squat_rack_1794677983827.jpg';
+import dumbbellCurlsImg from '../assets/images/exercise_dumbbell_curls_1794677983791.jpg';
+import { Exercise } from '../types/workout';
+
+export const DEFAULT_EXERCISES: Exercise[] = [
+  {
+    id: 'ex-1',
+    name: 'Supino Reto com Barra',
+    muscle: 'Peito',
+    setsReps: '4 × 8–10',
+    weight: 60,
+    completed: false,
+    imageUrl: benchPressImg,
+    notes: 'Descer controlando até tocar o centro do peito',
+  },
+  {
+    id: 'ex-2',
+    name: 'Crucifixo Inclinado com Halteres',
+    muscle: 'Peito',
+    setsReps: '3 × 12',
+    weight: 18,
+    completed: false,
+    imageUrl: dumbbellCurlsImg,
+    notes: 'Manter leve flexão nos cotovelos',
+  },
+  {
+    id: 'ex-3',
+    name: 'Puxada Frontal Aberta',
+    muscle: 'Costas',
+    setsReps: '4 × 10–12',
+    weight: 55,
+    completed: false,
+    imageUrl: latPulldownImg,
+    notes: 'Escápulas retraídas antes de iniciar a puxada',
+  },
+  {
+    id: 'ex-4',
+    name: 'Remada Curvada Pronada',
+    muscle: 'Costas',
+    setsReps: '4 × 10',
+    weight: 50,
+    completed: false,
+    notes: 'Tronco estável a 45 graus',
+  },
+  {
+    id: 'ex-5',
+    name: 'Agachamento Livre',
+    muscle: 'Pernas',
+    setsReps: '4 × 8–10',
+    weight: 80,
+    completed: false,
+    imageUrl: squatRackImg,
+    notes: 'Amplitude completa mantendo coluna neutra',
+  },
+  {
+    id: 'ex-6',
+    name: 'Desenvolvimento com Halteres',
+    muscle: 'Ombros',
+    setsReps: '4 × 10',
+    weight: 20,
+    completed: false,
+    imageUrl: dumbbellCurlsImg,
+  },
+  {
+    id: 'ex-7',
+    name: 'Rosca Direta Alternada',
+    muscle: 'Bíceps',
+    setsReps: '3 × 12',
+    weight: 14,
+    completed: false,
+  },
+  {
+    id: 'ex-8',
+    name: 'Tríceps Pulley Corda',
+    muscle: 'Tríceps',
+    setsReps: '3 × 12–15',
+    weight: 30,
+    completed: false,
+    imageUrl: latPulldownImg,
+  },
+  {
+    id: 'ex-9',
+    name: 'Abdominal Supra no Cabo',
+    muscle: 'Abdômen',
+    setsReps: '4 × 15',
+    weight: 25,
+    completed: false,
+  },
+];

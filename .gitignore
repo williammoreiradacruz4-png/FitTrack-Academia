@@ -1,0 +1,12 @@
+node_modules/
+build/
+dist/
+dist-ssr/
+dev-dist/
+coverage/
+.netlify/
+.DS_Store
+*.log
+*.local
+.env*
+!.env.example
