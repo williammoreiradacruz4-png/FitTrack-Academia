@@ -1,11 +1,21 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Camera, Trash2, X } from 'lucide-react';
-import { Exercise, MUSCLE_GROUPS, MuscleGroup } from '../types/workout';
+import {
+  DayOfWeek,
+  Exercise,
+  MUSCLE_GROUPS,
+  MuscleGroup,
+  ScheduleRange,
+  getDaysForRange,
+} from '../types/workout';
 import { compressImageFile } from '../utils/imageCompression';
 
 interface ExerciseModalProps {
   isOpen: boolean;
   editingExercise: Exercise | null;
+  defaultDay?: DayOfWeek;
+  defaultMuscle?: MuscleGroup;
+  scheduleRange: ScheduleRange;
   onClose: () => void;
   onSave: (data: Omit<Exercise, 'id' | 'completed'>, existingId?: string) => void;
 }
@@ -13,6 +23,9 @@ interface ExerciseModalProps {
 export function ExerciseModal({
   isOpen,
   editingExercise,
+  defaultDay,
+  defaultMuscle,
+  scheduleRange,
   onClose,
   onSave,
 }: ExerciseModalProps) {
@@ -22,6 +35,8 @@ export function ExerciseModal({
   const [weight, setWeight] = useState('20');
   const [notes, setNotes] = useState('');
   const [imageUrl, setImageUrl] = useState<string | undefined>(undefined);
+  const [selectedDays, setSelectedDays] = useState<DayOfWeek[]>([]);
+  const [isConjugated, setIsConjugated] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -34,16 +49,20 @@ export function ExerciseModal({
       setWeight(String(editingExercise.weight));
       setNotes(editingExercise.notes ?? '');
       setImageUrl(editingExercise.imageUrl);
+      setSelectedDays(editingExercise.days ?? []);
+      setIsConjugated(Boolean(editingExercise.isConjugated));
     } else {
       setName('');
-      setMuscle('Peito');
+      setMuscle(defaultMuscle ?? 'Peito');
       setSetsReps('4 × 10–12');
       setWeight('20');
       setNotes('');
       setImageUrl(undefined);
+      setSelectedDays(defaultDay ? [defaultDay] : []);
+      setIsConjugated(false);
     }
     setErrorMsg('');
-  }, [isOpen, editingExercise]);
+  }, [isOpen, editingExercise, defaultDay, defaultMuscle]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -55,6 +74,14 @@ export function ExerciseModal({
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
+
+  const availableDays = getDaysForRange(scheduleRange);
+
+  const handleToggleDay = (dayId: DayOfWeek) => {
+    setSelectedDays((prev) =>
+      prev.includes(dayId) ? prev.filter((d) => d !== dayId) : [...prev, dayId]
+    );
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -87,6 +114,8 @@ export function ExerciseModal({
         weight: Number.isNaN(parsedWeight) ? 0 : Math.max(0, parsedWeight),
         notes: notes.trim() || undefined,
         imageUrl,
+        days: selectedDays.length > 0 ? selectedDays : undefined,
+        isConjugated: isConjugated || undefined,
       },
       editingExercise?.id
     );
@@ -192,6 +221,61 @@ export function ExerciseModal({
               className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-orange-500"
             />
           </div>
+
+          {/* Optional Day Assignment */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="block text-xs font-medium text-zinc-300">
+                Dias do treino (opcional)
+              </span>
+              {selectedDays.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDays([])}
+                  className="text-xs text-orange-400 hover:text-orange-300 cursor-pointer"
+                >
+                  Deixar livre
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {availableDays.map((day) => {
+                const active = selectedDays.includes(day.id);
+                return (
+                  <button
+                    key={day.id}
+                    type="button"
+                    onClick={() => handleToggleDay(day.id)}
+                    className={`min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
+                      active
+                        ? 'bg-orange-500 text-zinc-950 font-bold'
+                        : 'bg-[#0b0c0e] text-zinc-400 border border-zinc-800 hover:text-zinc-200'
+                    }`}
+                  >
+                    {day.short}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Optional Conjugado Toggle */}
+          <label className="flex items-center justify-between gap-3 min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[#0b0c0e] border border-zinc-800 cursor-pointer">
+            <div>
+              <span className="block text-xs font-medium text-zinc-200">
+                Execução conjugada
+              </span>
+              <span className="block text-[11px] text-zinc-500">
+                Bi-set, tri-set ou circuito conjugado sem pausa entre séries
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              checked={isConjugated}
+              onChange={(e) => setIsConjugated(e.target.checked)}
+              className="w-5 h-5 accent-orange-500 rounded cursor-pointer"
+            />
+          </label>
 
           <div>
             <label htmlFor="ex-notes" className="block text-xs font-medium text-zinc-300 mb-1.5">

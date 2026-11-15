@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Camera, Check, Minus, Pencil, Plus, Trash2 } from 'lucide-react';
-import { Exercise } from '../types/workout';
+import { DAYS_META, Exercise } from '../types/workout';
 
 interface ExerciseCardProps {
   exercise: Exercise;
+  showAssignedDays?: boolean;
   onToggleComplete: (id: string) => void;
   onUpdateWeight: (id: string, weight: number) => void;
   onTriggerImageUpload: (id: string) => void;
@@ -13,6 +14,7 @@ interface ExerciseCardProps {
 
 export function ExerciseCard({
   exercise,
+  showAssignedDays = false,
   onToggleComplete,
   onUpdateWeight,
   onTriggerImageUpload,
@@ -27,6 +29,14 @@ export function ExerciseCard({
     const next = Math.max(0, Math.round((exercise.weight + delta) * 10) / 10);
     onUpdateWeight(exercise.id, next);
   };
+
+  const dayLabel =
+    showAssignedDays && exercise.days && exercise.days.length > 0
+      ? exercise.days
+          .map((d) => DAYS_META.find((meta) => meta.id === d)?.short)
+          .filter(Boolean)
+          .join(', ')
+      : '';
 
   return (
     <article
@@ -81,6 +91,18 @@ export function ExerciseCard({
           <span className="font-semibold text-orange-400">{exercise.muscle}</span>
           <span aria-hidden="true">·</span>
           <span className="font-mono tabular-nums text-zinc-300">{exercise.setsReps}</span>
+          {exercise.isConjugated && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="text-zinc-300 font-medium">Conjugado</span>
+            </>
+          )}
+          {dayLabel && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="text-zinc-400">{dayLabel}</span>
+            </>
+          )}
           {exercise.completed && (
             <>
               <span aria-hidden="true">·</span>

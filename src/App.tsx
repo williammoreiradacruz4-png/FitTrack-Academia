@@ -1,16 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, X, Dumbbell } from 'lucide-react';
+import { CalendarRange, Link2, Plus, Search, X, Dumbbell } from 'lucide-react';
 import { DEFAULT_EXERCISES } from './data/defaultExercises';
-import { Exercise, FILTER_OPTIONS, FilterOption } from './types/workout';
+import {
+  DAYS_META,
+  DEFAULT_WORKOUT_PLAN,
+  DayFilter,
+  DayOfWeek,
+  Exercise,
+  FILTER_OPTIONS,
+  FilterOption,
+  WorkoutPlan,
+  formatDayPlanSummary,
+  getDaysForRange,
+} from './types/workout';
 import { compressImageFile } from './utils/imageCompression';
 import { Header } from './components/Header';
 import { WorkoutSummary } from './components/WorkoutSummary';
 import { ExerciseCard } from './components/ExerciseCard';
 import { ExerciseModal } from './components/ExerciseModal';
+import { WorkoutPlanModal } from './components/WorkoutPlanModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { SplashScreen } from './components/SplashScreen';
 
 const STORAGE_KEY = 'fittrack_exercises_v1';
+const PLAN_STORAGE_KEY = 'fittrack_plan_v1';
 
 interface UndoToastState {
   message: string;
@@ -31,11 +44,28 @@ function loadInitialExercises(): Exercise[] {
   }
 }
 
+function loadInitialPlan(): WorkoutPlan {
+  try {
+    const raw = window.localStorage.getItem(PLAN_STORAGE_KEY);
+    if (!raw) return DEFAULT_WORKOUT_PLAN;
+    const parsed = JSON.parse(raw) as WorkoutPlan;
+    if (parsed && parsed.range && parsed.days) {
+      return parsed;
+    }
+    return DEFAULT_WORKOUT_PLAN;
+  } catch {
+    return DEFAULT_WORKOUT_PLAN;
+  }
+}
+
 export default function App() {
   const [exercises, setExercises] = useState<Exercise[]>(loadInitialExercises);
+  const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan>(loadInitialPlan);
+  const [activeDay, setActiveDay] = useState<DayFilter>('todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterOption>('Todos');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
   const [undoToast, setUndoToast] = useState<UndoToastState | null>(null);
   const [showSplash, setShowSplash] = useState(true);
@@ -51,6 +81,14 @@ export default function App() {
       // Ignore quota errors silently if storage is full
     }
   }, [exercises]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(workoutPlan));
+    } catch {
+      // Ignore quota errors silently if storage is full
+    }
+  }, [workoutPlan]);
 
   useEffect(() => {
     return () => {
@@ -79,9 +117,29 @@ export default function App() {
     }
   };
 
+  const availableDays = useMemo(
+    () => getDaysForRange(workoutPlan.range),
+    [workoutPlan.range]
+  );
+
+  // If user shrinks schedule range (e.g. 7 -> 5 days) while viewing Sáb/Dom, return to Todos
+  useEffect(() => {
+    if (
+      activeDay !== 'todos' &&
+      !availableDays.some((d) => d.id === activeDay)
+    ) {
+      setActiveDay('todos');
+    }
+  }, [activeDay, availableDays]);
+
+  const dayScopedExercises = useMemo(() => {
+    if (activeDay === 'todos') return exercises;
+    return exercises.filter((ex) => ex.days?.includes(activeDay));
+  }, [exercises, activeDay]);
+
   const filteredExercises = useMemo(() => {
     const normalizedSearch = searchQuery.trim().toLowerCase();
-    return exercises.filter((ex) => {
+    return dayScopedExercises.filter((ex) => {
       const matchesFilter = activeFilter === 'Todos' || ex.muscle === activeFilter;
       const matchesSearch =
         !normalizedSearch ||
@@ -89,12 +147,48 @@ export default function App() {
         ex.muscle.toLowerCase().includes(normalizedSearch);
       return matchesFilter && matchesSearch;
     });
-  }, [exercises, activeFilter, searchQuery]);
+  }, [dayScopedExercises, activeFilter, searchQuery]);
 
   const completedCount = useMemo(
-    () => exercises.filter((ex) => ex.completed).length,
-    [exercises]
+    () => dayScopedExercises.filter((ex) => ex.completed).length,
+    [dayScopedExercises]
   );
+
+  const currentDayMeta =
+    activeDay === 'todos'
+      ? null
+      : (DAYS_META.find((d) => d.id === activeDay) ?? null);
+
+  const currentDayPlan =
+    activeDay === 'todos' ? null : workoutPlan.days[activeDay];
+
+  const matchingUnlinkedExercises = useMemo(() => {
+    if (
+      activeDay === 'todos' ||
+      !currentDayPlan ||
+      currentDayPlan.mode === 'descanso' ||
+      currentDayPlan.muscles.length === 0
+    ) {
+      return [];
+    }
+    return exercises.filter(
+      (ex) =>
+        currentDayPlan.muscles.includes(ex.muscle) &&
+        !ex.days?.includes(activeDay)
+    );
+  }, [activeDay, currentDayPlan, exercises]);
+
+  const handleLinkMatchingToDay = () => {
+    if (activeDay === 'todos' || matchingUnlinkedExercises.length === 0) return;
+    const targetIds = new Set(matchingUnlinkedExercises.map((ex) => ex.id));
+    setExercises((prev) =>
+      prev.map((ex) => {
+        if (!targetIds.has(ex.id)) return ex;
+        const nextDays = ex.days ? [...ex.days, activeDay] : [activeDay];
+        return { ...ex, days: nextDays };
+      })
+    );
+  };
 
   const handleToggleComplete = (id: string) => {
     setExercises((prev) =>
@@ -111,8 +205,17 @@ export default function App() {
   const handleResetChecks = () => {
     if (completedCount === 0) return;
     const snapshot = exercises;
-    setExercises((prev) => prev.map((ex) => ({ ...ex, completed: false })));
-    showUndoToast('Marcações do dia zeradas.', snapshot);
+    if (activeDay === 'todos') {
+      setExercises((prev) => prev.map((ex) => ({ ...ex, completed: false })));
+      showUndoToast('Marcações do dia zeradas.', snapshot);
+    } else {
+      setExercises((prev) =>
+        prev.map((ex) =>
+          ex.days?.includes(activeDay) ? { ...ex, completed: false } : ex
+        )
+      );
+      showUndoToast(`Marcações de ${currentDayMeta?.short ?? 'hoje'} zeradas.`, snapshot);
+    }
   };
 
   const handleTriggerImageUpload = (id: string) => {
@@ -178,6 +281,18 @@ export default function App() {
     showUndoToast(`"${target.name}" removido.`, snapshot);
   };
 
+  const handleSavePlan = (nextPlan: WorkoutPlan) => {
+    setWorkoutPlan(nextPlan);
+  };
+
+  const defaultDayForNewExercise: DayOfWeek | undefined =
+    activeDay === 'todos' ? undefined : activeDay;
+
+  const defaultMuscleForNewExercise =
+    currentDayPlan && currentDayPlan.muscles.length > 0
+      ? currentDayPlan.muscles[0]
+      : undefined;
+
   return (
     <div className="min-h-screen bg-[#0b0c0e] text-zinc-100 pb-24 sm:pb-12">
       {showSplash && (
@@ -185,7 +300,7 @@ export default function App() {
       )}
       <Header
         completedCount={completedCount}
-        totalCount={exercises.length}
+        totalCount={dayScopedExercises.length}
         onResetChecks={handleResetChecks}
         onOpenNewModal={handleOpenNewModal}
       />
@@ -194,7 +309,7 @@ export default function App() {
         {/* Left Sidebar / Summary & Rest Timer */}
         <div className="lg:col-span-4">
           <WorkoutSummary
-            exercises={exercises}
+            exercises={dayScopedExercises}
             activeFilter={activeFilter}
             onSelectFilter={setActiveFilter}
           />
@@ -202,6 +317,104 @@ export default function App() {
 
         {/* Right Main Exercise Feed */}
         <section aria-label="Lista de exercícios" className="lg:col-span-8 space-y-4">
+          {/* Weekly Plan Strip */}
+          <div className="flex items-center justify-between gap-2">
+            <div
+              role="tablist"
+              aria-label="Dias do plano semanal"
+              className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 flex-1 min-w-0"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeDay === 'todos'}
+                onClick={() => setActiveDay('todos')}
+                className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 ${
+                  activeDay === 'todos'
+                    ? 'bg-zinc-100 text-zinc-950 font-bold'
+                    : 'bg-[#14161a] text-zinc-300 border border-zinc-800 hover:border-zinc-700 hover:text-zinc-100'
+                }`}
+              >
+                Geral
+              </button>
+
+              {availableDays.map((day) => {
+                const isActive = activeDay === day.id;
+                const dayPlan = workoutPlan.days[day.id];
+                const isRest = dayPlan.mode === 'descanso';
+                return (
+                  <button
+                    key={day.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => setActiveDay(day.id)}
+                    className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 ${
+                      isActive
+                        ? 'bg-orange-500 text-zinc-950 font-bold'
+                        : isRest
+                          ? 'bg-[#14161a] text-zinc-500 border border-zinc-800/80 hover:text-zinc-300'
+                          : 'bg-[#14161a] text-zinc-300 border border-zinc-800 hover:border-zinc-700 hover:text-zinc-100'
+                    }`}
+                  >
+                    {day.short}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsPlanModalOpen(true)}
+              className="min-h-[40px] px-3 py-2 rounded-xl bg-[#14161a] border border-zinc-800 hover:border-orange-500/50 text-xs font-semibold text-zinc-200 hover:text-orange-300 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+            >
+              <CalendarRange className="w-3.5 h-3.5 text-orange-400" aria-hidden="true" />
+              <span className="hidden xs:inline sm:inline">Plano Semanal</span>
+            </button>
+          </div>
+
+          {/* Active Day Focus Banner (unboxed editorial header) */}
+          {currentDayMeta && currentDayPlan && (
+            <div className="bg-[#14161a] border border-zinc-800 rounded-2xl px-4 py-3.5 flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-xs text-zinc-400">
+                  <span>{currentDayMeta.label}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    {currentDayPlan.mode === 'simples'
+                      ? 'Treino simples'
+                      : currentDayPlan.mode === 'descanso'
+                        ? 'Dia de descanso'
+                        : `Conjugado (${currentDayPlan.muscles.length} grupos)`}
+                  </span>
+                </div>
+                <p className="text-base font-bold text-orange-400 mt-0.5 truncate">
+                  {formatDayPlanSummary(currentDayPlan)}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {matchingUnlinkedExercises.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleLinkMatchingToDay}
+                    className="min-h-[40px] px-3 py-1.5 rounded-xl bg-orange-500/15 border border-orange-500/40 hover:bg-orange-500/25 text-xs font-semibold text-orange-300 flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
+                  >
+                    <Link2 className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Vincular existentes ({matchingUnlinkedExercises.length})</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsPlanModalOpen(true)}
+                  className="min-h-[40px] px-3 py-1.5 rounded-xl border border-zinc-700 hover:border-zinc-600 text-xs font-medium text-zinc-300 hover:text-zinc-100 whitespace-nowrap transition-colors cursor-pointer"
+                >
+                  Editar dia
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Search & Muscle Filters */}
           <div className="space-y-3">
             <div className="relative">
@@ -263,6 +476,7 @@ export default function App() {
                 <ExerciseCard
                   key={exercise.id}
                   exercise={exercise}
+                  showAssignedDays={activeDay === 'todos'}
                   onToggleComplete={handleToggleComplete}
                   onUpdateWeight={handleUpdateWeight}
                   onTriggerImageUpload={handleTriggerImageUpload}
@@ -277,14 +491,20 @@ export default function App() {
                 <Dumbbell className="w-6 h-6" aria-hidden="true" />
               </div>
               <h3 className="text-base font-semibold text-zinc-100">
-                Nenhum exercício encontrado
+                {currentDayPlan?.mode === 'descanso'
+                  ? `Descanso em ${currentDayMeta?.label}`
+                  : 'Nenhum exercício encontrado'}
               </h3>
               <p className="text-sm text-zinc-400 mt-1 max-w-sm mx-auto">
                 {searchQuery || activeFilter !== 'Todos'
                   ? 'Tente limpar a busca ou selecionar outro grupo muscular.'
-                  : 'Adicione seu primeiro exercício para montar sua ficha de treino.'}
+                  : activeDay !== 'todos' && currentDayPlan
+                    ? currentDayPlan.mode === 'descanso'
+                      ? 'Este dia está marcado como descanso no plano semanal. Você ainda pode adicionar um exercício ou editar o dia.'
+                      : `Adicione exercícios para ${currentDayMeta?.label} (${formatDayPlanSummary(currentDayPlan)}) ou vincule os que já existem.`
+                    : 'Adicione seu primeiro exercício para montar sua ficha de treino.'}
               </p>
-              <div className="mt-4 flex items-center justify-center gap-3">
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
                 {(searchQuery || activeFilter !== 'Todos') && (
                   <button
                     type="button"
@@ -295,6 +515,15 @@ export default function App() {
                     className="min-h-[44px] px-4 py-2 rounded-xl border border-zinc-700 text-xs font-medium text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
                   >
                     Limpar filtros
+                  </button>
+                )}
+                {matchingUnlinkedExercises.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleLinkMatchingToDay}
+                    className="min-h-[44px] px-4 py-2 rounded-xl border border-orange-500/40 bg-orange-500/15 text-xs font-semibold text-orange-300 hover:bg-orange-500/25 transition-colors cursor-pointer"
+                  >
+                    Vincular existentes ({matchingUnlinkedExercises.length})
                   </button>
                 )}
                 <button
@@ -352,8 +581,20 @@ export default function App() {
       <ExerciseModal
         isOpen={isModalOpen}
         editingExercise={editingExercise}
+        defaultDay={defaultDayForNewExercise}
+        defaultMuscle={defaultMuscleForNewExercise}
+        scheduleRange={workoutPlan.range}
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveExercise}
+      />
+
+      {/* Weekly Workout Plan Modal */}
+      <WorkoutPlanModal
+        isOpen={isPlanModalOpen}
+        initialPlan={workoutPlan}
+        initialDay={activeDay === 'todos' ? 'seg' : activeDay}
+        onClose={() => setIsPlanModalOpen(false)}
+        onSave={handleSavePlan}
       />
 
       <OfflineIndicator />
