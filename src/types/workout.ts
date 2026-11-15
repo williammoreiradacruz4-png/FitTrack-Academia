@@ -126,3 +126,39 @@ export const DEFAULT_WORKOUT_PLAN: WorkoutPlan = {
     dom: { day: 'dom', mode: 'descanso', muscles: [] },
   },
 };
+
+export interface WaterLog {
+  date: string;
+  consumedMl: number;
+  goalMl: number;
+}
+
+export interface ReminderSettings {
+  workoutEnabled: boolean;
+  workoutTime: string;
+  activeDays: DayOfWeek[];
+  waterEnabled: boolean;
+  waterIntervalMinutes: 60 | 90 | 120;
+  lastWorkoutNotifiedDate?: string;
+}
+
+export const DEFAULT_REMINDERS: ReminderSettings = {
+  workoutEnabled: false,
+  workoutTime: '18:00',
+  activeDays: ['seg', 'ter', 'qua', 'qui', 'sex'],
+  waterEnabled: false,
+  waterIntervalMinutes: 90,
+};
+
+export function getLocalDateKey(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function getTodayDayId(date = new Date()): DayOfWeek {
+  const map: DayOfWeek[] = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+  return map[date.getDay()];
+}
+

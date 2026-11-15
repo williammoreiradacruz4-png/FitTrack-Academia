@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarRange, Link2, Plus, Search, X, Dumbbell } from 'lucide-react';
+import { BellRing, CalendarRange, Link2, Plus, Search, X, Dumbbell } from 'lucide-react';
 import { DEFAULT_EXERCISES } from './data/defaultExercises';
 import {
   DAYS_META,
+  DEFAULT_REMINDERS,
   DEFAULT_WORKOUT_PLAN,
   DayFilter,
   DayOfWeek,
   Exercise,
   FILTER_OPTIONS,
   FilterOption,
+  ReminderSettings,
   WorkoutPlan,
   formatDayPlanSummary,
   getDaysForRange,
+  getLocalDateKey,
+  getTodayDayId,
 } from './types/workout';
 import { compressImageFile } from './utils/imageCompression';
 import { Header } from './components/Header';
@@ -19,11 +23,13 @@ import { WorkoutSummary } from './components/WorkoutSummary';
 import { ExerciseCard } from './components/ExerciseCard';
 import { ExerciseModal } from './components/ExerciseModal';
 import { WorkoutPlanModal } from './components/WorkoutPlanModal';
+import { RemindersModal } from './components/RemindersModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { SplashScreen } from './components/SplashScreen';
 
 const STORAGE_KEY = 'fittrack_exercises_v1';
 const PLAN_STORAGE_KEY = 'fittrack_plan_v1';
+const REMINDERS_STORAGE_KEY = 'fittrack_reminders_v1';
 
 interface UndoToastState {
   message: string;
@@ -58,16 +64,39 @@ function loadInitialPlan(): WorkoutPlan {
   }
 }
 
+function loadInitialReminders(): ReminderSettings {
+  try {
+    const raw = window.localStorage.getItem(REMINDERS_STORAGE_KEY);
+    if (!raw) return DEFAULT_REMINDERS;
+    const parsed = JSON.parse(raw) as ReminderSettings;
+    if (parsed && typeof parsed.workoutTime === 'string') {
+      return { ...DEFAULT_REMINDERS, ...parsed };
+    }
+    return DEFAULT_REMINDERS;
+  } catch {
+    return DEFAULT_REMINDERS;
+  }
+}
+
+interface ActiveReminderBanner {
+  title: string;
+  body: string;
+  targetDay?: DayOfWeek;
+}
+
 export default function App() {
   const [exercises, setExercises] = useState<Exercise[]>(loadInitialExercises);
   const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan>(loadInitialPlan);
+  const [reminderSettings, setReminderSettings] = useState<ReminderSettings>(loadInitialReminders);
   const [activeDay, setActiveDay] = useState<DayFilter>('todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterOption>('Todos');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
+  const [isRemindersModalOpen, setIsRemindersModalOpen] = useState(false);
   const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
   const [undoToast, setUndoToast] = useState<UndoToastState | null>(null);
+  const [reminderBanner, setReminderBanner] = useState<ActiveReminderBanner | null>(null);
   const [showSplash, setShowSplash] = useState(true);
 
   const uploadTargetIdRef = useRef<string | null>(null);
@@ -89,6 +118,93 @@ export default function App() {
       // Ignore quota errors silently if storage is full
     }
   }, [workoutPlan]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(REMINDERS_STORAGE_KEY, JSON.stringify(reminderSettings));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [reminderSettings]);
+
+  const sendSystemNotification = async (title: string, body: string) => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (window.Notification.permission !== 'granted') return;
+    try {
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) {
+          await reg.showNotification(title, {
+            body,
+            icon: '/pwa-192x192.png',
+            badge: '/pwa-192x192.png',
+          });
+          return;
+        }
+      }
+      new window.Notification(title, {
+        body,
+        icon: '/pwa-192x192.png',
+      });
+    } catch {
+      // Fallback safely to in-app banner only
+    }
+  };
+
+  // Weekly workout reminder scheduler
+  useEffect(() => {
+    if (!reminderSettings.workoutEnabled) return;
+
+    const checkWorkoutReminder = () => {
+      const now = new Date();
+      const todayKey = getLocalDateKey(now);
+      const todayId = getTodayDayId(now);
+      if (reminderSettings.lastWorkoutNotifiedDate === todayKey) return;
+      if (!reminderSettings.activeDays.includes(todayId)) return;
+
+      const currentHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(
+        now.getMinutes()
+      ).padStart(2, '0')}`;
+      if (currentHHMM < reminderSettings.workoutTime) return;
+
+      const dayMeta = DAYS_META.find((d) => d.id === todayId);
+      const dayPlan = workoutPlan.days[todayId];
+      const focusSummary = formatDayPlanSummary(dayPlan);
+      const title = `Hora do treino — ${dayMeta?.label ?? 'Hoje'}`;
+      const body =
+        dayPlan.mode === 'descanso'
+          ? 'Hoje é dia de descanso programado no seu plano.'
+          : `Foco de hoje: ${focusSummary}`;
+
+      setReminderBanner({
+        title,
+        body,
+        targetDay: todayId,
+      });
+      void sendSystemNotification(title, body);
+      setReminderSettings((prev) => ({
+        ...prev,
+        lastWorkoutNotifiedDate: todayKey,
+      }));
+    };
+
+    checkWorkoutReminder();
+    const interval = window.setInterval(checkWorkoutReminder, 30000);
+    return () => window.clearInterval(interval);
+  }, [reminderSettings, workoutPlan]);
+
+  // Periodic daily water intake reminder while app is active
+  useEffect(() => {
+    if (!reminderSettings.waterEnabled) return;
+    const ms = reminderSettings.waterIntervalMinutes * 60 * 1000;
+    const interval = window.setInterval(() => {
+      const title = 'Hora de beber água';
+      const body = 'Mantenha sua hidratação em dia e registre no FitTrack.';
+      setReminderBanner({ title, body });
+      void sendSystemNotification(title, body);
+    }, ms);
+    return () => window.clearInterval(interval);
+  }, [reminderSettings.waterEnabled, reminderSettings.waterIntervalMinutes]);
 
   useEffect(() => {
     return () => {
@@ -306,17 +422,63 @@ export default function App() {
       />
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-5 sm:py-7 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Sidebar / Summary & Rest Timer */}
+        {/* Left Sidebar / Summary, Water & Rest Timer */}
         <div className="lg:col-span-4">
           <WorkoutSummary
             exercises={dayScopedExercises}
             activeFilter={activeFilter}
+            reminderSettings={reminderSettings}
             onSelectFilter={setActiveFilter}
+            onOpenReminders={() => setIsRemindersModalOpen(true)}
           />
         </div>
 
         {/* Right Main Exercise Feed */}
         <section aria-label="Lista de exercícios" className="lg:col-span-8 space-y-4">
+          {reminderBanner && (
+            <div
+              role="status"
+              className="bg-[#14161a] border border-orange-500/50 rounded-2xl px-4 py-3.5 flex items-center justify-between gap-3"
+            >
+              <div className="flex items-start gap-3 min-w-0">
+                <BellRing className="w-5 h-5 text-orange-400 shrink-0 mt-0.5" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-zinc-100 truncate">
+                    {reminderBanner.title}
+                  </p>
+                  <p className="text-xs text-zinc-400 truncate mt-0.5">
+                    {reminderBanner.body}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {reminderBanner.targetDay &&
+                  availableDays.some((d) => d.id === reminderBanner.targetDay) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (reminderBanner.targetDay) {
+                          setActiveDay(reminderBanner.targetDay);
+                        }
+                        setReminderBanner(null);
+                      }}
+                      className="min-h-[40px] px-3 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-zinc-950 text-xs font-bold whitespace-nowrap cursor-pointer"
+                    >
+                      Ver treino
+                    </button>
+                  )}
+                <button
+                  type="button"
+                  onClick={() => setReminderBanner(null)}
+                  aria-label="Fechar lembrete"
+                  className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-zinc-100 cursor-pointer"
+                >
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          )}
           {/* Weekly Plan Strip */}
           <div className="flex items-center justify-between gap-2">
             <div
@@ -595,6 +757,25 @@ export default function App() {
         initialDay={activeDay === 'todos' ? 'seg' : activeDay}
         onClose={() => setIsPlanModalOpen(false)}
         onSave={handleSavePlan}
+      />
+
+      {/* Weekly & Water Reminders Modal */}
+      <RemindersModal
+        isOpen={isRemindersModalOpen}
+        initialSettings={reminderSettings}
+        workoutPlan={workoutPlan}
+        onClose={() => setIsRemindersModalOpen(false)}
+        onSave={(next) => setReminderSettings(next)}
+        onTestReminder={() => {
+          const todayId = getTodayDayId();
+          const dayMeta = DAYS_META.find((d) => d.id === todayId);
+          const dayPlan = workoutPlan.days[todayId];
+          const title = `Lembrete FitTrack — ${dayMeta?.label ?? 'Hoje'}`;
+          const body = `Foco: ${formatDayPlanSummary(dayPlan)} · Beba água e bom treino!`;
+          setReminderBanner({ title, body, targetDay: todayId });
+          void sendSystemNotification(title, body);
+          setIsRemindersModalOpen(false);
+        }}
       />
 
       <OfflineIndicator />

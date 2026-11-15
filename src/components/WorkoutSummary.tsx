@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Play, Pause, RotateCcw, Timer } from 'lucide-react';
-import { Exercise, FilterOption, MUSCLE_GROUPS } from '../types/workout';
+import { Bell, Play, Pause, RotateCcw, Timer } from 'lucide-react';
+import { Exercise, FilterOption, MUSCLE_GROUPS, ReminderSettings } from '../types/workout';
 import { PWAInstallButton } from './PWAInstallButton';
+import { WaterTrackerCard } from './WaterTrackerCard';
 
 interface WorkoutSummaryProps {
   exercises: Exercise[];
   activeFilter: FilterOption;
+  reminderSettings: ReminderSettings;
   onSelectFilter: (filter: FilterOption) => void;
+  onOpenReminders: () => void;
 }
 
 const PRESET_SECONDS = [60, 90, 120];
@@ -40,7 +43,9 @@ function playBeep() {
 export function WorkoutSummary({
   exercises,
   activeFilter,
+  reminderSettings,
   onSelectFilter,
+  onOpenReminders,
 }: WorkoutSummaryProps) {
   const totalCount = exercises.length;
   const completedCount = exercises.filter((ex) => ex.completed).length;
@@ -290,6 +295,40 @@ export function WorkoutSummary({
           </div>
         </section>
       )}
+
+      <WaterTrackerCard />
+
+      {/* Reminders Trigger Card */}
+      <section
+        aria-label="Lembretes de treino e água"
+        className="bg-[#14161a] border border-zinc-800 rounded-2xl p-4 flex items-center justify-between gap-3"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-[#0b0c0e] border border-zinc-800 flex items-center justify-center shrink-0 text-orange-400">
+            <Bell className="w-4 h-4" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-zinc-100 truncate">
+              Lembretes
+            </p>
+            <p className="text-xs text-zinc-400 truncate">
+              {reminderSettings.workoutEnabled
+                ? `Treino ${reminderSettings.workoutTime} · ${reminderSettings.activeDays.length}d`
+                : reminderSettings.waterEnabled
+                  ? `Água a cada ${reminderSettings.waterIntervalMinutes} min`
+                  : 'Treino semanal e água'}
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onOpenReminders}
+          className="min-h-[44px] px-3.5 py-2 rounded-xl border border-zinc-700 hover:border-orange-500/50 text-xs font-semibold text-zinc-200 hover:text-orange-300 whitespace-nowrap shrink-0 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+        >
+          Configurar
+        </button>
+      </section>
 
       <PWAInstallButton variant="card" />
     </aside>
