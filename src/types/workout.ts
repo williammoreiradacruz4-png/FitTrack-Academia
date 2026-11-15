@@ -45,6 +45,7 @@ export interface Exercise {
   muscle: MuscleGroup;
   setsReps: string;
   weight: number;
+  durationSeconds?: number;
   completed: boolean;
   imageUrl?: string;
   notes?: string;
@@ -161,4 +162,17 @@ export function getTodayDayId(date = new Date()): DayOfWeek {
   const map: DayOfWeek[] = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
   return map[date.getDay()];
 }
+
+export function isTimeBasedExercise(muscle: MuscleGroup, name: string): boolean {
+  if (muscle !== 'Abdômen') return false;
+  const normalized = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  const isCableOrCrossOver =
+    /\bcabo\b/.test(normalized) ||
+    /cross\s*-?\s*over/.test(normalized);
+  return !isCableOrCrossOver;
+}
+
 

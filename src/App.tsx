@@ -318,6 +318,12 @@ export default function App() {
     );
   };
 
+  const handleUpdateDuration = (id: string, durationSeconds: number) => {
+    setExercises((prev) =>
+      prev.map((ex) => (ex.id === id ? { ...ex, durationSeconds, weight: 0 } : ex))
+    );
+  };
+
   const handleResetChecks = () => {
     if (completedCount === 0) return;
     const snapshot = exercises;
@@ -641,6 +647,7 @@ export default function App() {
                   showAssignedDays={activeDay === 'todos'}
                   onToggleComplete={handleToggleComplete}
                   onUpdateWeight={handleUpdateWeight}
+                  onUpdateDuration={handleUpdateDuration}
                   onTriggerImageUpload={handleTriggerImageUpload}
                   onEdit={handleOpenEditModal}
                   onDelete={handleDeleteExercise}

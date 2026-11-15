@@ -82,10 +82,11 @@ export const DEFAULT_EXERCISES: Exercise[] = [
   },
   {
     id: 'ex-9',
-    name: 'Abdominal Supra no Cabo',
+    name: 'Prancha Abdominal Isométrica',
     muscle: 'Abdômen',
-    setsReps: '4 × 15',
-    weight: 25,
+    setsReps: '4 séries',
+    weight: 0,
+    durationSeconds: 45,
     completed: false,
   },
 ];

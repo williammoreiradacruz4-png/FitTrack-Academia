@@ -7,6 +7,7 @@ import {
   MuscleGroup,
   ScheduleRange,
   getDaysForRange,
+  isTimeBasedExercise,
 } from '../types/workout';
 import { compressImageFile } from '../utils/imageCompression';
 
@@ -33,6 +34,7 @@ export function ExerciseModal({
   const [muscle, setMuscle] = useState<MuscleGroup>('Peito');
   const [setsReps, setSetsReps] = useState('4 × 10–12');
   const [weight, setWeight] = useState('20');
+  const [durationSeconds, setDurationSeconds] = useState('45');
   const [notes, setNotes] = useState('');
   const [imageUrl, setImageUrl] = useState<string | undefined>(undefined);
   const [selectedDays, setSelectedDays] = useState<DayOfWeek[]>([]);
@@ -47,6 +49,14 @@ export function ExerciseModal({
       setMuscle(editingExercise.muscle);
       setSetsReps(editingExercise.setsReps);
       setWeight(String(editingExercise.weight));
+      setDurationSeconds(
+        String(
+          editingExercise.durationSeconds ??
+            (editingExercise.muscle === 'Abdômen' && editingExercise.weight > 0
+              ? editingExercise.weight
+              : 45)
+        )
+      );
       setNotes(editingExercise.notes ?? '');
       setImageUrl(editingExercise.imageUrl);
       setSelectedDays(editingExercise.days ?? []);
@@ -54,8 +64,9 @@ export function ExerciseModal({
     } else {
       setName('');
       setMuscle(defaultMuscle ?? 'Peito');
-      setSetsReps('4 × 10–12');
+      setSetsReps(defaultMuscle === 'Abdômen' ? '4 séries' : '4 × 10–12');
       setWeight('20');
+      setDurationSeconds('45');
       setNotes('');
       setImageUrl(undefined);
       setSelectedDays(defaultDay ? [defaultDay] : []);
@@ -97,6 +108,8 @@ export function ExerciseModal({
     }
   };
 
+  const isTimeBased = isTimeBasedExercise(muscle, name);
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     const trimmedName = name.trim();
@@ -105,13 +118,25 @@ export function ExerciseModal({
       return;
     }
 
+    const useTime = isTimeBasedExercise(muscle, trimmedName);
     const parsedWeight = parseFloat(weight);
+    const parsedDuration = parseInt(durationSeconds, 10);
+
     onSave(
       {
         name: trimmedName,
         muscle,
-        setsReps: setsReps.trim() || '3 × 12',
-        weight: Number.isNaN(parsedWeight) ? 0 : Math.max(0, parsedWeight),
+        setsReps: setsReps.trim() || (useTime ? '4 séries' : '3 × 12'),
+        weight: useTime
+          ? 0
+          : Number.isNaN(parsedWeight)
+            ? 0
+            : Math.max(0, parsedWeight),
+        durationSeconds: useTime
+          ? Number.isNaN(parsedDuration)
+            ? 0
+            : Math.max(0, parsedDuration)
+          : undefined,
         notes: notes.trim() || undefined,
         imageUrl,
         days: selectedDays.length > 0 ? selectedDays : undefined,
@@ -192,20 +217,38 @@ export function ExerciseModal({
               </select>
             </div>
 
-            <div>
-              <label htmlFor="ex-weight" className="block text-xs font-medium text-zinc-300 mb-1.5">
-                Carga inicial (kg)
-              </label>
-              <input
-                id="ex-weight"
-                type="number"
-                min={0}
-                step={0.5}
-                value={weight}
-                onChange={(e) => setWeight(e.target.value)}
-                className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm font-mono tabular-nums text-zinc-100 focus:outline-none focus:border-orange-500"
-              />
-            </div>
+            {isTimeBased ? (
+              <div>
+                <label htmlFor="ex-duration" className="block text-xs font-medium text-zinc-300 mb-1.5">
+                  Tempo inicial (seg)
+                </label>
+                <input
+                  id="ex-duration"
+                  type="number"
+                  min={0}
+                  step={1}
+                  placeholder="45"
+                  value={durationSeconds}
+                  onChange={(e) => setDurationSeconds(e.target.value)}
+                  className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm font-mono tabular-nums text-zinc-100 focus:outline-none focus:border-orange-500"
+                />
+              </div>
+            ) : (
+              <div>
+                <label htmlFor="ex-weight" className="block text-xs font-medium text-zinc-300 mb-1.5">
+                  Carga inicial (kg)
+                </label>
+                <input
+                  id="ex-weight"
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={weight}
+                  onChange={(e) => setWeight(e.target.value)}
+                  className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm font-mono tabular-nums text-zinc-100 focus:outline-none focus:border-orange-500"
+                />
+              </div>
+            )}
           </div>
 
           <div>
