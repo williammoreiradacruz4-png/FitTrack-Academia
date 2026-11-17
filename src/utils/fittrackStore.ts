@@ -160,6 +160,7 @@ export async function fetchAcademyByCode(
         name: rawData.name,
         professorName: rawData.professorName,
         password: rawData.password,
+        logoUrl: rawData.logoUrl,
         createdAt: rawData.createdAt,
       };
       const map = readLocalMap<Academy>(ACADEMIES_LOCAL_KEY);
@@ -219,6 +220,20 @@ export async function updateAcademyPassword(
     ...academy,
     password: newPassword,
   });
+}
+
+export async function updateAcademyLogo(
+  rawCode: string,
+  logoUrl: string | undefined
+): Promise<Academy | null> {
+  const academy = await fetchAcademyByCode(rawCode);
+  if (!academy) return null;
+  const updated: Academy = {
+    ...academy,
+    logoUrl,
+  };
+  await saveAcademy(updated);
+  return updated;
 }
 
 const MAIS_VIDA_CLEANUP_KEY = 'fittrack_cleanup_mais_vida_v1';

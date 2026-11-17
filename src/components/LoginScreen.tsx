@@ -1,12 +1,15 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   Building2,
+  CheckCircle2,
   Eye,
   EyeOff,
   GraduationCap,
+  ImagePlus,
   Lock,
   Trash2,
   User,
+  X,
 } from 'lucide-react';
 import {
   Academy,
@@ -29,6 +32,7 @@ import {
   saveStudentProfile,
   updateAcademyPassword,
 } from '../utils/fittrackStore';
+import { compressLogoFile } from '../utils/imageCompression';
 
 interface LoginScreenProps {
   onLogin: (session: UserSession) => void;
@@ -68,12 +72,20 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
   const [academyCodeInput, setAcademyCodeInput] = useState('');
   const [profNameInput, setProfNameInput] = useState('');
   const [profRegisterPassword, setProfRegisterPassword] = useState('');
+  const [academyLogoInput, setAcademyLogoInput] = useState<string | undefined>(undefined);
 
   // Professor Recover / Delete Academy fields
   const [recoverCode, setRecoverCode] = useState('');
   const [recoverProfName, setRecoverProfName] = useState('');
   const [recoverNewPassword, setRecoverNewPassword] = useState('');
 
+  const [isGymLockedFromQr, setIsGymLockedFromQr] = useState(false);
+  const [qrLinkedAcademyName, setQrLinkedAcademyName] = useState<string | null>(
+    null
+  );
+  const [qrLinkedAcademyLogo, setQrLinkedAcademyLogo] = useState<string | null>(
+    null
+  );
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -83,6 +95,37 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       setSuccessMsg(
         'A academia "Mais Vida Academia" foi excluída. Você já pode cadastrar uma nova academia ou recomeçar.'
       );
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const rawGym = params.get('gym');
+    const cleanGym = rawGym ? normalizeAcademyCode(rawGym) : '';
+
+    if (cleanGym) {
+      setRole('student');
+      setStudentMode('register');
+      setStudentAcademyCode(cleanGym);
+      setIsGymLockedFromQr(true);
+
+      let active = true;
+      void fetchAcademyByCode(cleanGym).then((academy) => {
+        if (!active) return;
+        if (academy) {
+          setQrLinkedAcademyName(academy.name);
+          setQrLinkedAcademyLogo(academy.logoUrl ?? null);
+          setErrorMsg('');
+        } else {
+          setQrLinkedAcademyName(null);
+          setQrLinkedAcademyLogo(null);
+          setErrorMsg(
+            `Código "${cleanGym}" do QR Code não encontrado. Confira com a recepção da academia.`
+          );
+        }
+      });
+
+      return () => {
+        active = false;
+      };
     }
   }, []);
 
@@ -222,13 +265,18 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         }
       }
 
+      const linkedAcademy = profile.academyCode
+        ? await fetchAcademyByCode(profile.academyCode)
+        : null;
+
       onLogin({
         role: 'student',
         name: profile.name,
         identifier: formatCpfMask(cpfDigits),
         cpf: cpfDigits,
         academyCode: profile.academyCode,
-        academyName: profile.academyName,
+        academyName: linkedAcademy?.name ?? profile.academyName,
+        academyLogo: linkedAcademy?.logoUrl,
         loggedInAt: new Date().toISOString(),
       });
     } finally {
@@ -319,6 +367,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         cpf: cpfDigits,
         academyCode: academy.code,
         academyName: academy.name,
+        academyLogo: academy.logoUrl,
         loggedInAt: nowIso,
       });
     } finally {
@@ -360,6 +409,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         identifier: academy.code,
         academyCode: academy.code,
         academyName: academy.name,
+        academyLogo: academy.logoUrl,
         loggedInAt: new Date().toISOString(),
       });
     } finally {
@@ -406,6 +456,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         name: cleanAcademyName,
         professorName: cleanProfName,
         password: profRegisterPassword,
+        logoUrl: academyLogoInput,
         createdAt: nowIso,
       };
 
@@ -417,6 +468,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         identifier: newAcademy.code,
         academyCode: newAcademy.code,
         academyName: newAcademy.name,
+        academyLogo: newAcademy.logoUrl,
         loggedInAt: nowIso,
       });
     } finally {
@@ -436,21 +488,35 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
           role === 'student' && studentMode === 'register' ? 'max-w-lg' : 'max-w-md'
         } bg-[#14161a] border border-zinc-800 rounded-2xl p-6 sm:p-7 shadow-2xl shadow-black/60 transition-[max-width] duration-200`}
       >
-        {/* Top Brand Logo */}
+        {/* Top Brand Logo (displays Academy logo dynamically when linked via QR Code) */}
         <div className="flex flex-col items-center text-center mb-6">
-          <div className="w-20 h-20 rounded-2xl bg-white p-1.5 shadow-lg ring-2 ring-orange-500/40 mb-3">
+          <div
+            className={`w-20 h-20 rounded-2xl bg-white p-1.5 shadow-lg mb-3 ${
+              qrLinkedAcademyLogo
+                ? 'ring-2 ring-emerald-500'
+                : 'ring-2 ring-orange-500/40'
+            }`}
+          >
             <img
-              src="/pwa-512x512.png"
-              alt="FitTrack Academia"
-              className="w-full h-full object-contain"
+              src={qrLinkedAcademyLogo ?? '/pwa-512x512.png'}
+              alt={qrLinkedAcademyName ?? 'FitTrack Academia'}
+              className="w-full h-full object-contain rounded-xl"
             />
           </div>
           <h1 className="font-display text-3xl font-bold tracking-tight text-zinc-100">
-            Fit<span className="text-orange-500">Track</span>{' '}
-            <span className="text-zinc-300 font-semibold">Academia</span>
+            {qrLinkedAcademyName ? (
+              <span className="text-emerald-400">{qrLinkedAcademyName}</span>
+            ) : (
+              <>
+                Fit<span className="text-orange-500">Track</span>{' '}
+                <span className="text-zinc-300 font-semibold">Academia</span>
+              </>
+            )}
           </h1>
           <p className="text-xs text-zinc-400 mt-1">
-            Plataforma multi-academias e personal trainers
+            {qrLinkedAcademyName
+              ? 'FitTrack Academia · Pré-cadastro do aluno'
+              : 'Plataforma multi-academias e personal trainers'}
           </p>
         </div>
 
@@ -490,6 +556,19 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
             <span>Sou Professor</span>
           </button>
         </div>
+
+        {qrLinkedAcademyName && role === 'student' && studentMode === 'register' && (
+          <div
+            role="status"
+            className="mb-4 flex items-center gap-2 text-xs font-semibold text-emerald-300 bg-emerald-500/15 border border-emerald-500/50 rounded-xl px-3.5 py-2.5"
+          >
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" aria-hidden="true" />
+            <span>
+              ✅ Vinculado automaticamente à academia:{' '}
+              <strong className="text-emerald-200">{qrLinkedAcademyName}</strong>
+            </span>
+          </div>
+        )}
 
         {errorMsg && (
           <p
@@ -607,28 +686,49 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
             ) : (
               <form onSubmit={handleStudentRegister} className="space-y-3.5">
                 <div>
-                  <label
-                    htmlFor="reg-academy-code"
-                    className="block text-xs font-medium text-zinc-300 mb-1"
-                  >
-                    Código da Academia / Personal
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label
+                      htmlFor="reg-academy-code"
+                      className="block text-xs font-medium text-zinc-300"
+                    >
+                      Código da Academia / Personal
+                    </label>
+                    {isGymLockedFromQr && (
+                      <span className="text-[11px] font-semibold text-emerald-400">
+                        Travado via QR Code
+                      </span>
+                    )}
+                  </div>
                   <div className="relative">
                     <input
                       id="reg-academy-code"
                       type="text"
                       required
+                      readOnly={isGymLockedFromQr}
                       placeholder="Solicite o código ao seu professor"
                       value={studentAcademyCode}
-                      onChange={(e) =>
-                        setStudentAcademyCode(normalizeAcademyCode(e.target.value))
-                      }
-                      className="w-full min-h-[44px] pl-10 pr-3.5 py-2 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm font-mono uppercase text-zinc-100 placeholder:text-zinc-500 placeholder:normal-case placeholder:font-sans focus:outline-none focus:border-purple-500"
+                      onChange={(e) => {
+                        if (isGymLockedFromQr) return;
+                        setStudentAcademyCode(normalizeAcademyCode(e.target.value));
+                      }}
+                      className={`w-full min-h-[44px] pl-10 pr-10 py-2 rounded-xl border text-sm font-mono uppercase placeholder:normal-case placeholder:font-sans focus:outline-none ${
+                        isGymLockedFromQr
+                          ? 'bg-emerald-500/10 border-emerald-500/60 text-emerald-200 cursor-not-allowed'
+                          : 'bg-[#0b0c0e] border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500'
+                      }`}
                     />
                     <Building2
-                      className="w-4 h-4 text-purple-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                      className={`w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none ${
+                        isGymLockedFromQr ? 'text-emerald-400' : 'text-purple-400'
+                      }`}
                       aria-hidden="true"
                     />
+                    {isGymLockedFromQr && (
+                      <Lock
+                        className="w-4 h-4 text-emerald-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                        aria-hidden="true"
+                      />
+                    )}
                   </div>
                 </div>
 
@@ -1073,6 +1173,56 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                     onChange={(e) => setProfRegisterPassword(e.target.value)}
                     className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-purple-500"
                   />
+                </div>
+
+                <div>
+                  <span className="block text-xs font-medium text-zinc-300 mb-1.5">
+                    Logo da Academia (opcional)
+                  </span>
+                  <div className="flex items-center gap-3 p-2.5 rounded-xl bg-[#0b0c0e] border border-zinc-800">
+                    <div className="w-12 h-12 rounded-xl bg-white p-1 border border-zinc-700 shrink-0 flex items-center justify-center overflow-hidden">
+                      <img
+                        src={academyLogoInput ?? '/pwa-512x512.png'}
+                        alt="Prévia da logo"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600/20 border border-purple-500/40 hover:bg-purple-600/30 text-xs font-semibold text-purple-200 cursor-pointer transition-colors">
+                        <ImagePlus className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>{academyLogoInput ? 'Trocar logo' : 'Enviar logo'}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = '';
+                            if (!file) return;
+                            try {
+                              const compressed = await compressLogoFile(file);
+                              setAcademyLogoInput(compressed);
+                            } catch {
+                              setErrorMsg('Não foi possível processar a imagem da logo.');
+                            }
+                          }}
+                        />
+                      </label>
+                      <p className="text-[11px] text-zinc-500 mt-1 truncate">
+                        Aparecerá no cabeçalho e nos QR Codes da academia
+                      </p>
+                    </div>
+                    {academyLogoInput && (
+                      <button
+                        type="button"
+                        onClick={() => setAcademyLogoInput(undefined)}
+                        aria-label="Remover logo"
+                        className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-zinc-400 hover:text-rose-400 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <button

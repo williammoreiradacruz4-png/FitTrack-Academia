@@ -237,6 +237,7 @@ export interface Academy {
   name: string;
   professorName: string;
   password: string;
+  logoUrl?: string;
   createdAt: string;
 }
 
@@ -276,6 +277,7 @@ export interface UserSession {
   cpf?: string; // normalized 11-digit CPF when role === 'student'
   academyCode?: string;
   academyName?: string;
+  academyLogo?: string;
   loggedInAt: string;
 }
 
@@ -361,6 +363,8 @@ export interface PhysicalAssessment {
   notes?: string;
 }
 
+export const OFFICIAL_APP_URL = 'https://fittrackacademia.netlify.app/';
+
 export function normalizeAcademyCode(raw: string): string {
   return raw
     .normalize('NFD')
@@ -370,6 +374,11 @@ export function normalizeAcademyCode(raw: string): string {
     .replace(/\s+/g, '-')
     .replace(/[^A-Z0-9_-]/g, '')
     .slice(0, 24);
+}
+
+export function buildAcademyInviteUrl(academyCode: string): string {
+  const clean = normalizeAcademyCode(academyCode);
+  return `${OFFICIAL_APP_URL}?gym=${encodeURIComponent(clean)}`;
 }
 
 export function normalizeCpf(raw: string): string {

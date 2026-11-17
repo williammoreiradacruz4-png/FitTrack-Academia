@@ -1,5 +1,13 @@
-import { useState } from 'react';
-import { Building2, Check, LogOut, Plus, RotateCcw } from 'lucide-react';
+import { useRef, useState } from 'react';
+import {
+  Building2,
+  Check,
+  ImagePlus,
+  LogOut,
+  Plus,
+  QrCode,
+  RotateCcw,
+} from 'lucide-react';
 import { UserSession } from '../types/workout';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -10,9 +18,14 @@ interface HeaderProps {
   showWorkoutActions: boolean;
   onResetChecks: () => void;
   onOpenNewModal: () => void;
+  onOpenQrModal: () => void;
+  onUploadAcademyLogo?: (file: File) => void;
   onAcademyBadgeClick: () => void;
   onLogout: () => void;
 }
+
+const DEFAULT_BRAND_LOGO =
+  '/assets/aistudio/1ae390dc-9fe8-438a-8f60-757249d5934f_9f41c830.png';
 
 export function Header({
   session,
@@ -21,10 +34,13 @@ export function Header({
   showWorkoutActions,
   onResetChecks,
   onOpenNewModal,
+  onOpenQrModal,
+  onUploadAcademyLogo,
   onAcademyBadgeClick,
   onLogout,
 }: HeaderProps) {
   const [copied, setCopied] = useState(false);
+  const logoFileRef = useRef<HTMLInputElement>(null);
   const isProfessor = session.role === 'professor';
   const progressPercent =
     totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
@@ -45,21 +61,38 @@ export function Header({
 
   return (
     <header className="sticky top-0 z-40 h-[56px] bg-[#14161a]/95 backdrop-blur-md border-b border-zinc-800">
-      <div className="max-w-6xl mx-auto h-full px-4 sm:px-6 flex items-center justify-between gap-3">
+      <div className="max-w-6xl mx-auto h-full px-4 sm:px-6 flex items-center justify-between gap-2 sm:gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
-          <img
-            src="/assets/aistudio/1ae390dc-9fe8-438a-8f60-757249d5934f_9f41c830.png"
-            alt="FitTrack Academia"
-            className="w-8 h-8 rounded-lg bg-white object-contain p-0.5 shrink-0"
-          />
+          {isProfessor && onUploadAcademyLogo ? (
+            <button
+              type="button"
+              onClick={() => logoFileRef.current?.click()}
+              title="Alterar logo da academia"
+              aria-label="Alterar logo da academia"
+              className="w-9 h-9 rounded-xl bg-white p-0.5 shrink-0 ring-1 ring-zinc-700 hover:ring-sky-400 transition-all cursor-pointer overflow-hidden"
+            >
+              <img
+                src={session.academyLogo ?? DEFAULT_BRAND_LOGO}
+                alt={session.academyName ?? 'FitTrack Academia'}
+                className="w-full h-full object-contain rounded-lg"
+              />
+            </button>
+          ) : (
+            <img
+              src={session.academyLogo ?? DEFAULT_BRAND_LOGO}
+              alt={session.academyName ?? 'FitTrack Academia'}
+              className="w-9 h-9 rounded-xl bg-white object-contain p-0.5 shrink-0 ring-1 ring-zinc-700"
+            />
+          )}
+
           <div className="min-w-0 leading-tight">
             {isProfessor ? (
-              <span className="block font-display text-lg sm:text-xl font-bold tracking-tight text-purple-300 whitespace-nowrap truncate max-w-[150px] sm:max-w-[260px]">
+              <span className="block font-display text-lg sm:text-xl font-bold tracking-tight text-purple-300 whitespace-nowrap truncate max-w-[110px] sm:max-w-[210px]">
                 {session.academyName ?? 'Modo Professor'}
               </span>
             ) : (
               <span
-                className="block font-display text-lg sm:text-xl font-bold tracking-tight text-zinc-100 whitespace-nowrap truncate max-w-[140px] sm:max-w-[240px]"
+                className="block font-display text-lg sm:text-xl font-bold tracking-tight text-zinc-100 whitespace-nowrap truncate max-w-[130px] sm:max-w-[230px]"
                 title={`Olá, ${session.name}`}
               >
                 Olá, <span className="text-orange-500">{session.name}</span>
@@ -75,7 +108,7 @@ export function Header({
                 ? 'Copiar código de convite da academia'
                 : 'Alterar academia ou personal vinculado'
             }
-            className="hidden sm:inline-flex min-h-[36px] px-2.5 py-1 rounded-lg bg-[#0b0c0e] border border-purple-500/35 hover:border-purple-400 text-[11px] font-medium text-purple-300 items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+            className="hidden md:inline-flex min-h-[36px] px-2.5 py-1 rounded-lg bg-[#0b0c0e] border border-purple-500/35 hover:border-purple-400 text-[11px] font-medium text-purple-300 items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
           >
             {copied ? (
               <>
@@ -85,7 +118,7 @@ export function Header({
             ) : (
               <>
                 <Building2 className="w-3.5 h-3.5" aria-hidden="true" />
-                <span className="max-w-[150px] truncate">
+                <span className="max-w-[130px] truncate">
                   {isProfessor
                     ? `Cód: ${session.academyCode ?? ''}`
                     : (session.academyName ?? session.academyCode ?? 'Vincular academia')}
@@ -95,11 +128,49 @@ export function Header({
           </button>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {showWorkoutActions && (
-            <span className="text-xs font-mono tabular-nums text-zinc-300 hidden md:inline whitespace-nowrap shrink-0 mr-1">
+            <span className="text-xs font-mono tabular-nums text-zinc-300 hidden lg:inline whitespace-nowrap shrink-0 mr-1">
               {completedCount}/{totalCount}
             </span>
+          )}
+
+          {isProfessor && onUploadAcademyLogo && (
+            <>
+              <input
+                ref={logoFileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) onUploadAcademyLogo(file);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => logoFileRef.current?.click()}
+                title="Enviar ou trocar logo da academia"
+                className="min-h-[44px] px-2.5 py-2 rounded-lg bg-sky-500/15 border border-sky-500/40 hover:bg-sky-500/25 text-xs font-semibold text-sky-300 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              >
+                <ImagePlus className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span className="hidden lg:inline">Alterar Logo</span>
+              </button>
+            </>
+          )}
+
+          {isProfessor && (
+            <button
+              type="button"
+              onClick={onOpenQrModal}
+              title="Gerar e imprimir QR Code para a recepção"
+              className="min-h-[44px] px-2.5 sm:px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/45 hover:bg-emerald-500/25 text-xs font-bold text-emerald-300 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+            >
+              <QrCode className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span className="hidden sm:inline">QR Code Recepção</span>
+              <span className="sm:hidden">QR</span>
+            </button>
           )}
 
           <PWAInstallButton variant="header" />

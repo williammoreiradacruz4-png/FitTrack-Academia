@@ -31,11 +31,13 @@ import {
   getTodayDayId,
   normalizeCpf,
 } from './types/workout';
-import { compressImageFile } from './utils/imageCompression';
+import { compressImageFile, compressLogoFile } from './utils/imageCompression';
 import {
+  fetchAcademyByCode,
   fetchStudentProfileByCpf,
   fetchStudentWorkoutByCpf,
   subscribeStudentWorkout,
+  updateAcademyLogo,
   updateStudentWorkoutExercises,
 } from './utils/fittrackStore';
 import { Header } from './components/Header';
@@ -52,6 +54,7 @@ import { PhysicalAssessmentView } from './components/PhysicalAssessmentView';
 import { StudentWaitingScreen } from './components/StudentWaitingScreen';
 import { StudentAssessmentView } from './components/StudentAssessmentView';
 import { LinkAcademyModal } from './components/LinkAcademyModal';
+import { QrCodeModal } from './components/QrCodeModal';
 
 const STORAGE_KEY = 'fittrack_exercises_v1';
 const PLAN_STORAGE_KEY = 'fittrack_plan_v1';
@@ -156,6 +159,7 @@ export default function App() {
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [isRemindersModalOpen, setIsRemindersModalOpen] = useState(false);
   const [isLinkAcademyModalOpen, setIsLinkAcademyModalOpen] = useState(false);
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
   const [detailsExercise, setDetailsExercise] = useState<Exercise | null>(null);
   const [undoToast, setUndoToast] = useState<UndoToastState | null>(null);
@@ -223,6 +227,7 @@ export default function App() {
     setIsModalOpen(false);
     setIsPlanModalOpen(false);
     setIsRemindersModalOpen(false);
+    setIsQrModalOpen(false);
     setDetailsExercise(null);
     setEditingExercise(null);
     setUndoToast(null);
@@ -266,6 +271,47 @@ export default function App() {
       unsubscribe();
     };
   }, [session, studentCpf]);
+
+  // Keep academy name and custom logo synced with Firestore for both Professor and Student
+  useEffect(() => {
+    const code = session?.academyCode;
+    if (!code) return;
+    let active = true;
+    void fetchAcademyByCode(code).then((academy) => {
+      if (!active || !academy) return;
+      setSession((prev) => {
+        if (!prev || prev.academyCode !== academy.code) return prev;
+        if (
+          prev.academyName === academy.name &&
+          prev.academyLogo === academy.logoUrl
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          academyName: academy.name,
+          academyLogo: academy.logoUrl,
+        };
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [session?.academyCode]);
+
+  const handleUploadAcademyLogo = async (file: File) => {
+    const code = session?.academyCode ?? session?.identifier;
+    if (!isProfessor || !code) return;
+    try {
+      const compressedLogo = await compressLogoFile(file);
+      await updateAcademyLogo(code, compressedLogo);
+      setSession((prev) =>
+        prev ? { ...prev, academyLogo: compressedLogo } : prev
+      );
+    } catch {
+      // Fail gracefully without alert
+    }
+  };
 
   const handleRefreshStudentWorkout = async () => {
     if (studentCpf.length !== 11) return;
@@ -616,17 +662,26 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0b0c0e] text-zinc-100 pb-24 sm:pb-12">
-      <Header
-        session={session}
-        completedCount={completedCount}
-        totalCount={dayScopedExercises.length}
-        showWorkoutActions={showWorkouts}
-        onResetChecks={handleResetChecks}
-        onOpenNewModal={handleOpenNewModal}
-        onAcademyBadgeClick={() => setIsLinkAcademyModalOpen(true)}
-        onLogout={handleLogout}
-      />
+    <>
+      <div
+        className={`min-h-screen bg-[#0b0c0e] text-zinc-100 pb-24 sm:pb-12 ${
+          isQrModalOpen ? 'no-print' : ''
+        }`}
+      >
+        <Header
+          session={session}
+          completedCount={completedCount}
+          totalCount={dayScopedExercises.length}
+          showWorkoutActions={showWorkouts}
+          onResetChecks={handleResetChecks}
+          onOpenNewModal={handleOpenNewModal}
+          onOpenQrModal={() => setIsQrModalOpen(true)}
+          onUploadAcademyLogo={
+            isProfessor ? (file) => void handleUploadAcademyLogo(file) : undefined
+          }
+          onAcademyBadgeClick={() => setIsLinkAcademyModalOpen(true)}
+          onLogout={handleLogout}
+        />
 
       {isProfessor ? (
         <nav
@@ -1145,6 +1200,7 @@ export default function App() {
                     ...prev,
                     academyCode: academy.code,
                     academyName: academy.name,
+                    academyLogo: academy.logoUrl,
                   }
                 : prev
             );
@@ -1154,5 +1210,16 @@ export default function App() {
 
       <OfflineIndicator />
     </div>
+
+    {isProfessor && (
+      <QrCodeModal
+        isOpen={isQrModalOpen}
+        academyCode={session.academyCode ?? session.identifier}
+        academyName={session.academyName ?? session.name}
+        academyLogo={session.academyLogo}
+        onClose={() => setIsQrModalOpen(false)}
+      />
+    )}
+    </>
   );
 }
