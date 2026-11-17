@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { Camera, Check, Minus, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Camera, Check, Dumbbell, Minus, Pencil, Plus, Trash2 } from 'lucide-react';
 import { DAYS_META, Exercise, isTimeBasedExercise } from '../types/workout';
 
 interface ExerciseCardProps {
   exercise: Exercise;
+  isProfessor: boolean;
   showAssignedDays?: boolean;
+  onSelectExercise: (exercise: Exercise) => void;
   onToggleComplete: (id: string) => void;
   onUpdateWeight: (id: string, weight: number) => void;
   onUpdateDuration: (id: string, durationSeconds: number) => void;
@@ -15,7 +17,9 @@ interface ExerciseCardProps {
 
 export function ExerciseCard({
   exercise,
+  isProfessor,
   showAssignedDays = false,
+  onSelectExercise,
   onToggleComplete,
   onUpdateWeight,
   onUpdateDuration,
@@ -57,23 +61,47 @@ export function ExerciseCard({
           : 'bg-[#14161a] border-zinc-800 hover:border-zinc-700'
       }`}
     >
-      {/* Lateral Image Upload Card */}
-      <button
-        type="button"
-        onClick={() => onTriggerImageUpload(exercise.id)}
-        aria-label={
-          hasValidImage
-            ? `Alterar foto de ${exercise.name}`
-            : `Adicionar foto de ${exercise.name}`
-        }
-        className={`relative w-20 h-20 min-w-[80px] rounded-xl overflow-hidden flex flex-col items-center justify-center text-center transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 ${
-          hasValidImage
-            ? 'border border-zinc-700 bg-[#0b0c0e]'
-            : 'border border-dashed border-zinc-600 bg-[#0b0c0e] hover:border-orange-500/60'
-        }`}
-      >
-        {hasValidImage ? (
-          <>
+      {/* Lateral Image Card (Interactive upload for Professor, view-only for Student) */}
+      {isProfessor ? (
+        <button
+          type="button"
+          onClick={() => onTriggerImageUpload(exercise.id)}
+          aria-label={
+            hasValidImage
+              ? `Alterar foto de ${exercise.name}`
+              : `Adicionar foto de ${exercise.name}`
+          }
+          className={`relative w-20 h-20 min-w-[80px] rounded-xl overflow-hidden flex flex-col items-center justify-center text-center transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 ${
+            hasValidImage
+              ? 'border border-zinc-700 bg-[#0b0c0e]'
+              : 'border border-dashed border-zinc-600 bg-[#0b0c0e] hover:border-orange-500/60'
+          }`}
+        >
+          {hasValidImage ? (
+            <>
+              <img
+                src={exercise.imageUrl}
+                alt={exercise.name}
+                referrerPolicy="no-referrer"
+                onError={() => setImgError(true)}
+                className={`w-full h-full object-cover transition-opacity duration-150 ${
+                  exercise.completed ? 'opacity-60' : 'opacity-100'
+                }`}
+              />
+              <span className="absolute inset-x-0 bottom-0 py-1 bg-zinc-950/85 text-[11px] font-medium text-zinc-200 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
+                Alterar
+              </span>
+            </>
+          ) : (
+            <span className="flex flex-col items-center justify-center gap-1 px-1.5 text-zinc-400 group-hover:text-orange-400 transition-colors">
+              <Camera className="w-5 h-5" aria-hidden="true" />
+              <span className="text-[11px] font-medium leading-tight">Foto</span>
+            </span>
+          )}
+        </button>
+      ) : (
+        <div className="relative w-20 h-20 min-w-[80px] rounded-xl overflow-hidden flex items-center justify-center border border-zinc-800 bg-[#0b0c0e] shrink-0">
+          {hasValidImage ? (
             <img
               src={exercise.imageUrl}
               alt={exercise.name}
@@ -83,17 +111,11 @@ export function ExerciseCard({
                 exercise.completed ? 'opacity-60' : 'opacity-100'
               }`}
             />
-            <span className="absolute inset-x-0 bottom-0 py-1 bg-zinc-950/85 text-[11px] font-medium text-zinc-200 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
-              Alterar
-            </span>
-          </>
-        ) : (
-          <span className="flex flex-col items-center justify-center gap-1 px-1.5 text-zinc-400 group-hover:text-orange-400 transition-colors">
-            <Camera className="w-5 h-5" aria-hidden="true" />
-            <span className="text-[11px] font-medium leading-tight">Foto</span>
-          </span>
-        )}
-      </button>
+          ) : (
+            <Dumbbell className="w-6 h-6 text-zinc-600" aria-hidden="true" />
+          )}
+        </div>
+      )}
 
       {/* Center Info & Controls */}
       <div className="flex-1 min-w-0">
@@ -114,6 +136,12 @@ export function ExerciseCard({
               <span className="text-zinc-400">{dayLabel}</span>
             </>
           )}
+          {(exercise.videoUrl || exercise.videoFileId) && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="text-zinc-300">Vídeo</span>
+            </>
+          )}
           {exercise.completed && (
             <>
               <span aria-hidden="true">·</span>
@@ -122,15 +150,17 @@ export function ExerciseCard({
           )}
         </div>
 
-        {/* Exercise Title */}
-        <h3
-          className={`text-base font-semibold leading-snug mt-0.5 truncate ${
+        {/* Clickable Exercise Title -> Opens Student Details & Video Modal */}
+        <button
+          type="button"
+          onClick={() => onSelectExercise(exercise)}
+          title={`Ver execução e vídeo de ${exercise.name}`}
+          className={`w-full text-left text-base font-semibold leading-snug mt-0.5 truncate transition-colors cursor-pointer hover:text-orange-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 rounded ${
             exercise.completed ? 'line-through text-zinc-400' : 'text-zinc-100'
           }`}
-          title={exercise.name}
         >
           {exercise.name}
-        </h3>
+        </button>
 
         {exercise.notes && (
           <p className="text-xs text-zinc-400 truncate mt-0.5" title={exercise.notes}>
@@ -138,7 +168,7 @@ export function ExerciseCard({
           </p>
         )}
 
-        {/* Weight or Time Stepper & Actions */}
+        {/* Weight or Time Stepper & Professor-only Edit/Delete Actions */}
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
           <div className="inline-flex items-center rounded-xl bg-[#0b0c0e] border border-zinc-800 h-11">
             <button
@@ -195,25 +225,27 @@ export function ExerciseCard({
             </button>
           </div>
 
-          <div className="flex items-center">
-            <button
-              type="button"
-              onClick={() => onEdit(exercise)}
-              aria-label={`Editar ${exercise.name}`}
-              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/70 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
-            >
-              <Pencil className="w-4 h-4" aria-hidden="true" />
-            </button>
+          {isProfessor && (
+            <div className="flex items-center">
+              <button
+                type="button"
+                onClick={() => onEdit(exercise)}
+                aria-label={`Editar ${exercise.name}`}
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/70 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+              >
+                <Pencil className="w-4 h-4" aria-hidden="true" />
+              </button>
 
-            <button
-              type="button"
-              onClick={() => onDelete(exercise.id)}
-              aria-label={`Excluir ${exercise.name}`}
-              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
-            >
-              <Trash2 className="w-4 h-4" aria-hidden="true" />
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => onDelete(exercise.id)}
+                aria-label={`Excluir ${exercise.name}`}
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+              >
+                <Trash2 className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
