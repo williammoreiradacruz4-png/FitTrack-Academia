@@ -9,7 +9,8 @@ export type MuscleGroup =
   | 'Ombros'
   | 'Bíceps'
   | 'Tríceps'
-  | 'Abdômen';
+  | 'Abdômen'
+  | 'Cardio';
 
 export type FilterOption = 'Todos' | MuscleGroup;
 
@@ -72,6 +73,7 @@ export const MUSCLE_GROUPS: MuscleGroup[] = [
   'Bíceps',
   'Tríceps',
   'Abdômen',
+  'Cardio',
 ];
 
 export const FILTER_OPTIONS: FilterOption[] = ['Todos', ...MUSCLE_GROUPS];
@@ -171,6 +173,7 @@ export function getTodayDayId(date = new Date()): DayOfWeek {
 }
 
 export function isTimeBasedExercise(muscle: MuscleGroup, name: string): boolean {
+  if (muscle === 'Cardio') return true;
   if (muscle !== 'Abdômen') return false;
   const normalized = name
     .normalize('NFD')
@@ -180,6 +183,11 @@ export function isTimeBasedExercise(muscle: MuscleGroup, name: string): boolean 
     /\bcabo\b/.test(normalized) ||
     /cross\s*-?\s*over/.test(normalized);
   return !isCableOrCrossOver;
+}
+
+export function formatCardioMinutes(durationSeconds?: number): number {
+  const secs = durationSeconds ?? 1200;
+  return Math.round((secs / 60) * 10) / 10;
 }
 
 export type UserRole = 'student' | 'professor';

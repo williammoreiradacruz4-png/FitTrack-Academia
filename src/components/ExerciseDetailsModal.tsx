@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { ExternalLink, FileText, Pencil, PlayCircle, Video, X } from 'lucide-react';
-import { DAYS_META, Exercise, isTimeBasedExercise } from '../types/workout';
+import {
+  DAYS_META,
+  Exercise,
+  formatCardioMinutes,
+  isTimeBasedExercise,
+} from '../types/workout';
 import { getVideoBlob, parseVideoUrl } from '../utils/videoStorage';
 
 interface ExerciseDetailsModalProps {
@@ -73,10 +78,13 @@ export function ExerciseDetailsModal({
 
   if (!exercise) return null;
 
+  const isCardio = exercise.muscle === 'Cardio';
   const isTimeBased = isTimeBasedExercise(exercise.muscle, exercise.name);
-  const metricLabel = isTimeBased
-    ? `${exercise.durationSeconds ?? exercise.weight} seg`
-    : `${exercise.weight} kg`;
+  const metricLabel = isCardio
+    ? `${formatCardioMinutes(exercise.durationSeconds)} min`
+    : isTimeBased
+      ? `${exercise.durationSeconds ?? exercise.weight} seg`
+      : `${exercise.weight} kg`;
 
   const dayLabel =
     exercise.days && exercise.days.length > 0
@@ -122,8 +130,12 @@ export function ExerciseDetailsModal({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-zinc-400">
                 <span className="font-semibold text-orange-400">{exercise.muscle}</span>
-                <span aria-hidden="true">·</span>
-                <span className="font-mono tabular-nums text-zinc-200">{exercise.setsReps}</span>
+                {exercise.muscle !== 'Cardio' && exercise.setsReps.trim().length > 0 && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span className="font-mono tabular-nums text-zinc-200">{exercise.setsReps}</span>
+                  </>
+                )}
                 <span aria-hidden="true">·</span>
                 <span className="font-mono tabular-nums text-zinc-200">{metricLabel}</span>
                 {exercise.isConjugated && (

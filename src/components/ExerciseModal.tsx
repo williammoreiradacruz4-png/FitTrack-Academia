@@ -6,6 +6,7 @@ import {
   MUSCLE_GROUPS,
   MuscleGroup,
   ScheduleRange,
+  formatCardioMinutes,
   getDaysForRange,
   isTimeBasedExercise,
 } from '../types/workout';
@@ -64,15 +65,17 @@ export function ExerciseModal({
     if (editingExercise) {
       setName(editingExercise.name);
       setMuscle(editingExercise.muscle);
-      setSetsReps(editingExercise.setsReps);
+      setSetsReps(editingExercise.muscle === 'Cardio' ? '' : editingExercise.setsReps);
       setWeight(String(editingExercise.weight));
       setDurationSeconds(
-        String(
-          editingExercise.durationSeconds ??
-            (editingExercise.muscle === 'Abdômen' && editingExercise.weight > 0
-              ? editingExercise.weight
-              : 45)
-        )
+        editingExercise.muscle === 'Cardio'
+          ? String(formatCardioMinutes(editingExercise.durationSeconds))
+          : String(
+              editingExercise.durationSeconds ??
+                (editingExercise.muscle === 'Abdômen' && editingExercise.weight > 0
+                  ? editingExercise.weight
+                  : 45)
+            )
       );
       setNotes(editingExercise.notes ?? '');
       setExecutionInstructions(editingExercise.executionInstructions ?? '');
@@ -86,9 +89,15 @@ export function ExerciseModal({
     } else {
       setName('');
       setMuscle(defaultMuscle ?? 'Peito');
-      setSetsReps(defaultMuscle === 'Abdômen' ? '4 séries' : '4 × 10–12');
+      setSetsReps(
+        defaultMuscle === 'Cardio'
+          ? ''
+          : defaultMuscle === 'Abdômen'
+            ? '4 séries'
+            : '4 × 10–12'
+      );
       setWeight('20');
-      setDurationSeconds('45');
+      setDurationSeconds(defaultMuscle === 'Cardio' ? '20' : '45');
       setNotes('');
       setExecutionInstructions('');
       setVideoUrl('');
@@ -204,15 +213,22 @@ export function ExerciseModal({
         nextVideoFileName = pendingVideoFile.name;
       }
 
+      const isCardio = muscle === 'Cardio';
       const useTime = isTimeBasedExercise(muscle, trimmedName);
       const parsedWeight = parseFloat(weight);
-      const parsedDuration = parseInt(durationSeconds, 10);
+      const parsedDuration = parseFloat(durationSeconds);
+
+      if (isCardio && (Number.isNaN(parsedDuration) || parsedDuration <= 0)) {
+        setErrorMsg('Informe o tempo em minutos para o exercício de cardio.');
+        setIsSaving(false);
+        return;
+      }
 
       onSave(
         {
           name: trimmedName,
           muscle,
-          setsReps: setsReps.trim() || (useTime ? '4 séries' : '3 × 12'),
+          setsReps: isCardio ? '' : setsReps.trim() || (useTime ? '4 séries' : '3 × 12'),
           weight: useTime
             ? 0
             : Number.isNaN(parsedWeight)
@@ -221,7 +237,9 @@ export function ExerciseModal({
           durationSeconds: useTime
             ? Number.isNaN(parsedDuration)
               ? 0
-              : Math.max(0, parsedDuration)
+              : isCardio
+                ? Math.round(Math.max(0, parsedDuration) * 60)
+                : Math.round(Math.max(0, parsedDuration))
             : undefined,
           notes: notes.trim() || undefined,
           executionInstructions: executionInstructions.trim() || undefined,
@@ -288,7 +306,11 @@ export function ExerciseModal({
               type="text"
               required
               autoFocus
-              placeholder="Ex: Supino Inclinado com Halteres"
+              placeholder={
+                muscle === 'Cardio'
+                  ? 'Ex: Esteira, Bicicleta ou Elíptico'
+                  : 'Ex: Supino Inclinado com Halteres'
+              }
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-orange-500"
@@ -303,7 +325,24 @@ export function ExerciseModal({
               <select
                 id="ex-muscle"
                 value={muscle}
-                onChange={(e) => setMuscle(e.target.value as MuscleGroup)}
+                onChange={(e) => {
+                  const nextMuscle = e.target.value as MuscleGroup;
+                  const wasCardio = muscle === 'Cardio';
+                  setMuscle(nextMuscle);
+                  if (nextMuscle === 'Cardio') {
+                    setSetsReps('');
+                    if (!wasCardio) {
+                      setDurationSeconds('20');
+                    }
+                  } else {
+                    if (wasCardio) {
+                      setDurationSeconds('45');
+                    }
+                    if (!setsReps.trim()) {
+                      setSetsReps(nextMuscle === 'Abdômen' ? '4 séries' : '4 × 10–12');
+                    }
+                  }
+                }}
                 className="w-full min-h-[44px] px-3 py-2.5 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm text-zinc-100 focus:outline-none focus:border-orange-500"
               >
                 {MUSCLE_GROUPS.map((group) => (
@@ -317,14 +356,15 @@ export function ExerciseModal({
             {isTimeBased ? (
               <div>
                 <label htmlFor="ex-duration" className="block text-xs font-medium text-zinc-300 mb-1.5">
-                  Tempo inicial (seg)
+                  {muscle === 'Cardio' ? 'Tempo (minutos)' : 'Tempo inicial (seg)'}
                 </label>
                 <input
                   id="ex-duration"
                   type="number"
-                  min={0}
-                  step={1}
-                  placeholder="45"
+                  min={muscle === 'Cardio' ? 1 : 0}
+                  step={muscle === 'Cardio' ? 'any' : 1}
+                  required={muscle === 'Cardio'}
+                  placeholder={muscle === 'Cardio' ? '20' : '45'}
                   value={durationSeconds}
                   onChange={(e) => setDurationSeconds(e.target.value)}
                   className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm font-mono tabular-nums text-zinc-100 focus:outline-none focus:border-orange-500"
@@ -348,19 +388,21 @@ export function ExerciseModal({
             )}
           </div>
 
-          <div>
-            <label htmlFor="ex-sets" className="block text-xs font-medium text-zinc-300 mb-1.5">
-              Séries e repetições
-            </label>
-            <input
-              id="ex-sets"
-              type="text"
-              placeholder="Ex: 4 × 10–12"
-              value={setsReps}
-              onChange={(e) => setSetsReps(e.target.value)}
-              className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-orange-500"
-            />
-          </div>
+          {muscle !== 'Cardio' && (
+            <div>
+              <label htmlFor="ex-sets" className="block text-xs font-medium text-zinc-300 mb-1.5">
+                Séries e repetições
+              </label>
+              <input
+                id="ex-sets"
+                type="text"
+                placeholder="Ex: 4 × 10–12"
+                value={setsReps}
+                onChange={(e) => setSetsReps(e.target.value)}
+                className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-orange-500"
+              />
+            </div>
+          )}
 
           {/* Optional Day Assignment */}
           <div>

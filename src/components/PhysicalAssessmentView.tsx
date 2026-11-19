@@ -34,6 +34,7 @@ import {
   calculatePollock3BodyFat,
   calculatePollock7BodyFat,
   calculateWHR,
+  formatCardioMinutes,
   formatCpfMask,
   formatDateBr,
   getLocalDateKey,
@@ -269,17 +270,19 @@ export function PhysicalAssessmentView({
       if (matched) {
         nextDrafts[libEx.id] = {
           selected: true,
-          setsReps: matched.setsReps,
+          setsReps: libEx.muscle === 'Cardio' ? '' : matched.setsReps,
           weight: matched.weight,
-          durationSeconds: matched.durationSeconds ?? 45,
+          durationSeconds:
+            matched.durationSeconds ?? (libEx.muscle === 'Cardio' ? 1200 : 45),
           days: matched.days ?? [],
         };
       } else {
         nextDrafts[libEx.id] = {
           selected: false,
-          setsReps: libEx.setsReps,
+          setsReps: libEx.muscle === 'Cardio' ? '' : libEx.setsReps,
           weight: libEx.weight,
-          durationSeconds: libEx.durationSeconds ?? 45,
+          durationSeconds:
+            libEx.durationSeconds ?? (libEx.muscle === 'Cardio' ? 1200 : 45),
           days: libEx.days ?? [],
         };
       }
@@ -654,9 +657,9 @@ export function PhysicalAssessmentView({
     return (
       draftByExerciseId[ex.id] ?? {
         selected: false,
-        setsReps: ex.setsReps,
+        setsReps: ex.muscle === 'Cardio' ? '' : ex.setsReps,
         weight: ex.weight,
-        durationSeconds: ex.durationSeconds ?? 45,
+        durationSeconds: ex.durationSeconds ?? (ex.muscle === 'Cardio' ? 1200 : 45),
         days: ex.days ?? [],
       }
     );
@@ -709,11 +712,12 @@ export function PhysicalAssessmentView({
       .filter((ex) => draftByExerciseId[ex.id]?.selected)
       .map((libEx) => {
         const draft = getDraft(libEx);
+        const isCardio = libEx.muscle === 'Cardio';
         const useTime = isTimeBasedExercise(libEx.muscle, libEx.name);
         return {
           ...libEx,
           completed: false,
-          setsReps: draft.setsReps.trim() || libEx.setsReps,
+          setsReps: isCardio ? '' : draft.setsReps.trim() || libEx.setsReps,
           weight: useTime ? 0 : Math.max(0, draft.weight),
           durationSeconds: useTime ? Math.max(0, draft.durationSeconds) : undefined,
           days: draft.days.length > 0 ? draft.days : undefined,
@@ -2042,8 +2046,21 @@ export function PhysicalAssessmentView({
                           <span className="font-semibold text-orange-400">
                             {ex.muscle}
                           </span>
-                          <span aria-hidden="true">·</span>
-                          <span className="font-mono">{ex.setsReps}</span>
+                          {ex.muscle === 'Cardio' ? (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span className="font-mono tabular-nums">
+                                {formatCardioMinutes(ex.durationSeconds)} min
+                              </span>
+                            </>
+                          ) : (
+                            ex.setsReps.trim().length > 0 && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="font-mono">{ex.setsReps}</span>
+                              </>
+                            )
+                          )}
                         </div>
                         <p className="text-sm font-semibold text-zinc-100 truncate">
                           {ex.name}
@@ -2054,22 +2071,49 @@ export function PhysicalAssessmentView({
 
                   {draft.selected && (
                     <div className="mt-3 pt-3 border-t border-zinc-800/80 space-y-2.5">
-                      <div className="grid grid-cols-2 gap-2.5">
-                        <div>
-                          <label className="block text-[11px] text-zinc-400 mb-1">
-                            Séries e repetições
-                          </label>
-                          <input
-                            type="text"
-                            value={draft.setsReps}
-                            onChange={(e) =>
-                              updateDraftField(ex, { setsReps: e.target.value })
-                            }
-                            className="w-full min-h-[40px] px-2.5 py-1.5 rounded-lg bg-[#14161a] border border-zinc-700 text-xs font-mono text-zinc-100 focus:outline-none focus:border-orange-500"
-                          />
-                        </div>
+                      <div
+                        className={`grid gap-2.5 ${
+                          ex.muscle === 'Cardio' ? 'grid-cols-1' : 'grid-cols-2'
+                        }`}
+                      >
+                        {ex.muscle !== 'Cardio' && (
+                          <div>
+                            <label className="block text-[11px] text-zinc-400 mb-1">
+                              Séries e repetições
+                            </label>
+                            <input
+                              type="text"
+                              value={draft.setsReps}
+                              onChange={(e) =>
+                                updateDraftField(ex, { setsReps: e.target.value })
+                              }
+                              className="w-full min-h-[40px] px-2.5 py-1.5 rounded-lg bg-[#14161a] border border-zinc-700 text-xs font-mono text-zinc-100 focus:outline-none focus:border-orange-500"
+                            />
+                          </div>
+                        )}
 
-                        {isTimeBased ? (
+                        {ex.muscle === 'Cardio' ? (
+                          <div>
+                            <label className="block text-[11px] text-zinc-400 mb-1">
+                              Tempo (minutos)
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="any"
+                              value={formatCardioMinutes(draft.durationSeconds)}
+                              onChange={(e) =>
+                                updateDraftField(ex, {
+                                  durationSeconds: Math.max(
+                                    0,
+                                    Math.round((parseFloat(e.target.value) || 0) * 60)
+                                  ),
+                                })
+                              }
+                              className="w-full min-h-[40px] px-2.5 py-1.5 rounded-lg bg-[#14161a] border border-zinc-700 text-xs font-mono tabular-nums text-zinc-100 focus:outline-none focus:border-orange-500"
+                            />
+                          </div>
+                        ) : isTimeBased ? (
                           <div>
                             <label className="block text-[11px] text-zinc-400 mb-1">
                               Tempo inicial (seg)

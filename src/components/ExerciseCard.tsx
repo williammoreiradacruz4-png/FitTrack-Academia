@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { Camera, Check, Dumbbell, Minus, Pencil, Plus, Trash2 } from 'lucide-react';
-import { DAYS_META, Exercise, isTimeBasedExercise } from '../types/workout';
+import {
+  DAYS_META,
+  Exercise,
+  formatCardioMinutes,
+  isTimeBasedExercise,
+} from '../types/workout';
 
 interface ExerciseCardProps {
   exercise: Exercise;
@@ -30,13 +35,19 @@ export function ExerciseCard({
   const [imgError, setImgError] = useState(false);
 
   const hasValidImage = Boolean(exercise.imageUrl) && !imgError;
+  const isCardio = exercise.muscle === 'Cardio';
   const isTimeBased = isTimeBasedExercise(exercise.muscle, exercise.name);
-  const metricValue = isTimeBased
-    ? (exercise.durationSeconds ?? exercise.weight)
-    : exercise.weight;
+  const metricValue = isCardio
+    ? formatCardioMinutes(exercise.durationSeconds)
+    : isTimeBased
+      ? (exercise.durationSeconds ?? exercise.weight)
+      : exercise.weight;
 
   const handleMetricStep = (delta: number) => {
-    if (isTimeBased) {
+    if (isCardio) {
+      const nextMinutes = Math.max(0, Math.round((metricValue + delta) * 10) / 10);
+      onUpdateDuration(exercise.id, Math.round(nextMinutes * 60));
+    } else if (isTimeBased) {
       const next = Math.max(0, Math.round(metricValue + delta));
       onUpdateDuration(exercise.id, next);
     } else {
@@ -124,8 +135,12 @@ export function ExerciseCard({
         {/* Clean Unboxed Metadata Line (Zero-Pill Rule) */}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-zinc-400">
           <span className="font-semibold text-orange-400">{exercise.muscle}</span>
-          <span aria-hidden="true">·</span>
-          <span className="font-mono tabular-nums text-zinc-300">{exercise.setsReps}</span>
+          {exercise.muscle !== 'Cardio' && exercise.setsReps.trim().length > 0 && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="font-mono tabular-nums text-zinc-300">{exercise.setsReps}</span>
+            </>
+          )}
           {exercise.isConjugated && (
             <>
               <span aria-hidden="true">·</span>
@@ -175,9 +190,9 @@ export function ExerciseCard({
           <div className="inline-flex items-center rounded-xl bg-[#0b0c0e] border border-zinc-800 h-11">
             <button
               type="button"
-              onClick={() => handleMetricStep(isTimeBased ? -5 : -2.5)}
+              onClick={() => handleMetricStep(isCardio ? -5 : isTimeBased ? -5 : -2.5)}
               aria-label={
-                isTimeBased
+                isCardio || isTimeBased
                   ? `Diminuir tempo de ${exercise.name}`
                   : `Diminuir carga de ${exercise.name}`
               }
@@ -188,19 +203,23 @@ export function ExerciseCard({
 
             <label className="flex items-center px-1">
               <span className="sr-only">
-                {isTimeBased
-                  ? `Tempo em segundos para ${exercise.name}`
-                  : `Carga em quilogramas para ${exercise.name}`}
+                {isCardio
+                  ? `Tempo em minutos para ${exercise.name}`
+                  : isTimeBased
+                    ? `Tempo em segundos para ${exercise.name}`
+                    : `Carga em quilogramas para ${exercise.name}`}
               </span>
               <input
                 type="number"
                 min={0}
-                step={isTimeBased ? 1 : 0.5}
+                step={isCardio ? 'any' : isTimeBased ? 1 : 0.5}
                 value={metricValue}
                 onChange={(e) => {
                   const val = parseFloat(e.target.value);
                   const safeVal = Number.isNaN(val) ? 0 : Math.max(0, val);
-                  if (isTimeBased) {
+                  if (isCardio) {
+                    onUpdateDuration(exercise.id, Math.round(safeVal * 60));
+                  } else if (isTimeBased) {
                     onUpdateDuration(exercise.id, Math.round(safeVal));
                   } else {
                     onUpdateWeight(exercise.id, safeVal);
@@ -209,15 +228,15 @@ export function ExerciseCard({
                 className="w-12 bg-transparent text-center font-mono tabular-nums text-sm font-medium text-zinc-100 focus:outline-none"
               />
               <span className="text-xs text-zinc-400 pr-1 font-mono">
-                {isTimeBased ? 'seg' : 'kg'}
+                {isCardio ? 'min' : isTimeBased ? 'seg' : 'kg'}
               </span>
             </label>
 
             <button
               type="button"
-              onClick={() => handleMetricStep(isTimeBased ? 5 : 2.5)}
+              onClick={() => handleMetricStep(isCardio ? 5 : isTimeBased ? 5 : 2.5)}
               aria-label={
-                isTimeBased
+                isCardio || isTimeBased
                   ? `Aumentar tempo de ${exercise.name}`
                   : `Aumentar carga de ${exercise.name}`
               }
