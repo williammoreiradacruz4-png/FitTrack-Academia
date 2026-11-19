@@ -150,6 +150,8 @@ export default function App() {
   const uploadTargetIdRef = useRef<string | null>(null);
   const hiddenFileInputRef = useRef<HTMLInputElement>(null);
   const toastTimerRef = useRef<number | null>(null);
+  const exercisesRef = useRef<Exercise[]>(exercises);
+  exercisesRef.current = exercises;
 
   useEffect(() => {
     try {
@@ -576,21 +578,28 @@ export default function App() {
   };
 
   const handleHiddenImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const inputEl = e.target;
+    const file = inputEl.files?.[0];
     const targetId = uploadTargetIdRef.current;
-    e.target.value = '';
-    if (!file || !targetId) return;
+    if (!file || !targetId) {
+      inputEl.value = '';
+      uploadTargetIdRef.current = null;
+      return;
+    }
 
     try {
       const compressed = await compressImageFile(file);
-      const target = exercises.find((ex) => ex.id === targetId);
+      const target = exercisesRef.current.find((ex) => ex.id === targetId);
       const updatedExercise = target
-        ? { ...target, imageUrl: compressed }
+        ? { ...target, imageUrl: compressed, gymCode: professorGymCode || target.gymCode }
         : null;
       setExercises((prev) =>
         prev.map((ex) =>
           ex.id === targetId ? { ...ex, imageUrl: compressed } : ex
         )
+      );
+      setDetailsExercise((prev) =>
+        prev && prev.id === targetId ? { ...prev, imageUrl: compressed } : prev
       );
       if (professorGymCode && updatedExercise) {
         void saveLibraryExercise(professorGymCode, updatedExercise).then((res) => {
@@ -604,8 +613,9 @@ export default function App() {
         });
       }
     } catch {
-      // Fail gracefully without alert
+      setSyncWarning('Não foi possível processar a imagem selecionada.');
     } finally {
+      inputEl.value = '';
       uploadTargetIdRef.current = null;
     }
   };

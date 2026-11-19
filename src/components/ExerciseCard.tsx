@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Camera, Check, Dumbbell, Minus, Pencil, Plus, Trash2 } from 'lucide-react';
 import {
   DAYS_META,
@@ -33,6 +33,10 @@ export function ExerciseCard({
   onDelete,
 }: ExerciseCardProps) {
   const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [exercise.imageUrl]);
 
   const hasValidImage = Boolean(exercise.imageUrl) && !imgError;
   const isCardio = exercise.muscle === 'Cardio';
@@ -93,9 +97,10 @@ export function ExerciseCard({
           {hasValidImage ? (
             <>
               <img
+                key={exercise.imageUrl}
                 src={exercise.imageUrl}
                 alt={exercise.name}
-                referrerPolicy="no-referrer"
+                referrerPolicy={exercise.imageUrl?.startsWith('data:') ? undefined : 'no-referrer'}
                 onError={() => setImgError(true)}
                 className={`w-full h-full object-cover transition-opacity duration-150 ${
                   exercise.completed ? 'opacity-60' : 'opacity-100'
@@ -116,9 +121,10 @@ export function ExerciseCard({
         <div className="relative w-20 h-20 min-w-[80px] rounded-xl overflow-hidden flex items-center justify-center border border-zinc-800 bg-[#0b0c0e] shrink-0">
           {hasValidImage ? (
             <img
+              key={exercise.imageUrl}
               src={exercise.imageUrl}
               alt={exercise.name}
-              referrerPolicy="no-referrer"
+              referrerPolicy={exercise.imageUrl?.startsWith('data:') ? undefined : 'no-referrer'}
               onError={() => setImgError(true)}
               className={`w-full h-full object-cover transition-opacity duration-150 ${
                 exercise.completed ? 'opacity-60' : 'opacity-100'

@@ -26,6 +26,11 @@ export function ExerciseDetailsModal({
   const [activeTab, setActiveTab] = useState<DetailTab>('written');
   const [localVideoObjectUrl, setLocalVideoObjectUrl] = useState<string | null>(null);
   const [videoLoading, setVideoLoading] = useState(false);
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [exercise?.imageUrl]);
 
   useEffect(() => {
     if (!exercise) return;
@@ -116,12 +121,14 @@ export function ExerciseDetailsModal({
         {/* Header Info */}
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3.5 min-w-0">
-            {exercise.imageUrl && (
+            {exercise.imageUrl && !imgError && (
               <div className="w-16 h-16 rounded-xl overflow-hidden border border-zinc-700 bg-[#0b0c0e] shrink-0">
                 <img
+                  key={exercise.imageUrl}
                   src={exercise.imageUrl}
                   alt={exercise.name}
-                  referrerPolicy="no-referrer"
+                  referrerPolicy={exercise.imageUrl.startsWith('data:') ? undefined : 'no-referrer'}
+                  onError={() => setImgError(true)}
                   className="w-full h-full object-cover"
                 />
               </div>
