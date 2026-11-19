@@ -27,13 +27,17 @@ import {
   getDaysForRange,
   getLocalDateKey,
   getTodayDayId,
+  normalizeAcademyCode,
   normalizeCpf,
 } from './types/workout';
 import { compressImageFile, compressLogoFile } from './utils/imageCompression';
 import {
-  fetchAcademyByCode,
-  fetchStudentProfileByCpf,
+  deleteLibraryExercise,
   fetchStudentWorkoutByCpf,
+  saveLibraryExercise,
+  subscribeAcademyByCode,
+  subscribeLibraryByGym,
+  subscribeStudentProfileByCpf,
   subscribeStudentWorkout,
   updateAcademyLogo,
   updateStudentWorkoutExercises,
@@ -53,7 +57,6 @@ import { StudentAssessmentView } from './components/StudentAssessmentView';
 import { LinkAcademyModal } from './components/LinkAcademyModal';
 import { QrCodeModal } from './components/QrCodeModal';
 
-const STORAGE_KEY = 'fittrack_exercises_v1';
 const PLAN_STORAGE_KEY = 'fittrack_plan_v1';
 const REMINDERS_STORAGE_KEY = 'fittrack_reminders_v1';
 const SESSION_STORAGE_KEY = 'fittrack_session_v1';
@@ -61,26 +64,6 @@ const SESSION_STORAGE_KEY = 'fittrack_session_v1';
 interface UndoToastState {
   message: string;
   previousExercises: Exercise[];
-}
-
-function loadInitialExercises(): Exercise[] {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_EXERCISES;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed.map((ex: Exercise) => {
-        if (ex.executionInstructions !== undefined) return ex;
-        const starter = DEFAULT_EXERCISES.find((d) => d.id === ex.id);
-        return starter?.executionInstructions
-          ? { ...ex, executionInstructions: starter.executionInstructions }
-          : ex;
-      });
-    }
-    return DEFAULT_EXERCISES;
-  } catch {
-    return DEFAULT_EXERCISES;
-  }
 }
 
 function loadInitialPlan(): WorkoutPlan {
@@ -143,7 +126,7 @@ export default function App() {
   const [session, setSession] = useState<UserSession | null>(loadInitialSession);
   const [professorTab, setProfessorTab] = useState<ProfessorTab>('workouts');
   const [studentTab, setStudentTab] = useState<StudentTab>('workout');
-  const [exercises, setExercises] = useState<Exercise[]>(loadInitialExercises);
+  const [exercises, setExercises] = useState<Exercise[]>([]);
   const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null);
   const [studentWorkout, setStudentWorkout] = useState<StudentWorkoutRecord | null>(null);
   const [isCheckingWorkout, setIsCheckingWorkout] = useState(false);
@@ -165,14 +148,6 @@ export default function App() {
   const uploadTargetIdRef = useRef<string | null>(null);
   const hiddenFileInputRef = useRef<HTMLInputElement>(null);
   const toastTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(exercises));
-    } catch {
-      // Ignore quota errors silently if storage is full
-    }
-  }, [exercises]);
 
   useEffect(() => {
     try {
@@ -213,6 +188,7 @@ export default function App() {
 
   const handleLogout = () => {
     setSession(null);
+    setExercises([]);
     setStudentProfile(null);
     setStudentWorkout(null);
     setProfessorTab('workouts');
@@ -230,6 +206,9 @@ export default function App() {
   };
 
   const isProfessor = session?.role === 'professor';
+  const professorGymCode = normalizeAcademyCode(
+    session?.academyCode ?? session?.identifier ?? ''
+  );
   const studentCpf =
     session?.role === 'student'
       ? (session.cpf ?? normalizeCpf(session.identifier))
@@ -244,7 +223,25 @@ export default function App() {
     ? professorTab === 'workouts'
     : studentTab === 'workout' && studentHasWorkout;
 
-  // Load & subscribe to personalized workout + profile when a student logs in
+  // Real-time onSnapshot subscription for Professor Exercise Library (fittrack_library)
+  useEffect(() => {
+    if (!session || session.role !== 'professor' || !professorGymCode) {
+      setExercises([]);
+      return;
+    }
+
+    const unsubscribeLibrary = subscribeLibraryByGym(
+      professorGymCode,
+      DEFAULT_EXERCISES,
+      (cloudExercises) => setExercises(cloudExercises)
+    );
+
+    return () => {
+      unsubscribeLibrary();
+    };
+  }, [session?.role, professorGymCode]);
+
+  // Load & subscribe in real time to personalized workout + profile when a student logs in
   useEffect(() => {
     if (!session || session.role !== 'student' || studentCpf.length !== 11) {
       setStudentProfile(null);
@@ -252,30 +249,30 @@ export default function App() {
       return;
     }
 
-    let active = true;
-    void fetchStudentProfileByCpf(studentCpf).then((prof) => {
-      if (active) setStudentProfile(prof);
+    const unsubProfile = subscribeStudentProfileByCpf(studentCpf, (prof) => {
+      setStudentProfile(prof);
     });
 
-    const unsubscribe = subscribeStudentWorkout(studentCpf, (record) => {
-      if (active) setStudentWorkout(record);
+    const unsubWorkout = subscribeStudentWorkout(studentCpf, (record) => {
+      setStudentWorkout(record);
     });
 
     return () => {
-      active = false;
-      unsubscribe();
+      unsubProfile();
+      unsubWorkout();
     };
-  }, [session, studentCpf]);
+  }, [session?.role, studentCpf]);
 
-  // Keep academy name and custom logo synced with Firestore for both Professor and Student
+  // Keep academy name and custom logo synced in real time with Firestore (fittrack_gyms)
   useEffect(() => {
     const code = session?.academyCode;
     if (!code) return;
-    let active = true;
-    void fetchAcademyByCode(code).then((academy) => {
-      if (!active || !academy) return;
+    const unsubscribe = subscribeAcademyByCode(code, (academy) => {
+      if (!academy) return;
       setSession((prev) => {
-        if (!prev || prev.academyCode !== academy.code) return prev;
+        if (!prev || normalizeAcademyCode(prev.academyCode ?? '') !== academy.gymCode) {
+          return prev;
+        }
         if (
           prev.academyName === academy.name &&
           prev.academyLogo === academy.logoUrl
@@ -290,7 +287,7 @@ export default function App() {
       });
     });
     return () => {
-      active = false;
+      unsubscribe();
     };
   }, [session?.academyCode]);
 
@@ -419,7 +416,16 @@ export default function App() {
   const handleUndo = () => {
     if (!undoToast) return;
     if (isProfessor) {
+      const currentIds = new Set(exercises.map((ex) => ex.id));
+      const restored = undoToast.previousExercises.filter(
+        (ex) => !currentIds.has(ex.id)
+      );
       setExercises(undoToast.previousExercises);
+      if (professorGymCode) {
+        restored.forEach((ex) => {
+          void saveLibraryExercise(professorGymCode, ex);
+        });
+      }
     } else if (studentCpf) {
       setStudentWorkout((prev) =>
         prev ? { ...prev, exercises: undoToast.previousExercises } : prev
@@ -482,37 +488,48 @@ export default function App() {
   const currentDayPlan =
     activeDay === 'todos' ? null : workoutPlan.days[activeDay];
 
-  const applyExerciseMutation = (updater: (list: Exercise[]) => Exercise[]) => {
+  const applyExerciseMutation = (
+    updater: (list: Exercise[]) => Exercise[],
+    changedId?: string
+  ) => {
     if (isProfessor) {
-      setExercises((prev) => updater(prev));
+      const nextList = updater(exercises);
+      setExercises(nextList);
+      if (professorGymCode && changedId) {
+        const updatedItem = nextList.find((ex) => ex.id === changedId);
+        if (updatedItem) {
+          void saveLibraryExercise(professorGymCode, updatedItem);
+        }
+      }
       return;
     }
-    if (!studentCpf) return;
-    setStudentWorkout((prev) => {
-      if (!prev) return prev;
-      const nextList = updater(prev.exercises);
-      void updateStudentWorkoutExercises(studentCpf, nextList);
-      return { ...prev, exercises: nextList };
-    });
+    if (!studentCpf || !studentWorkout) return;
+    const nextList = updater(studentWorkout.exercises);
+    setStudentWorkout((prev) => (prev ? { ...prev, exercises: nextList } : prev));
+    void updateStudentWorkoutExercises(studentCpf, nextList);
   };
 
   const handleToggleComplete = (id: string) => {
-    applyExerciseMutation((list) =>
-      list.map((ex) => (ex.id === id ? { ...ex, completed: !ex.completed } : ex))
+    applyExerciseMutation(
+      (list) => list.map((ex) => (ex.id === id ? { ...ex, completed: !ex.completed } : ex)),
+      id
     );
   };
 
   const handleUpdateWeight = (id: string, weight: number) => {
-    applyExerciseMutation((list) =>
-      list.map((ex) => (ex.id === id ? { ...ex, weight } : ex))
+    applyExerciseMutation(
+      (list) => list.map((ex) => (ex.id === id ? { ...ex, weight } : ex)),
+      id
     );
   };
 
   const handleUpdateDuration = (id: string, durationSeconds: number) => {
-    applyExerciseMutation((list) =>
-      list.map((ex) =>
-        ex.id === id ? { ...ex, durationSeconds, weight: 0 } : ex
-      )
+    applyExerciseMutation(
+      (list) =>
+        list.map((ex) =>
+          ex.id === id ? { ...ex, durationSeconds, weight: 0 } : ex
+        ),
+      id
     );
   };
 
@@ -547,9 +564,18 @@ export default function App() {
 
     try {
       const compressed = await compressImageFile(file);
+      const target = exercises.find((ex) => ex.id === targetId);
+      const updatedExercise = target
+        ? { ...target, imageUrl: compressed }
+        : null;
       setExercises((prev) =>
-        prev.map((ex) => (ex.id === targetId ? { ...ex, imageUrl: compressed } : ex))
+        prev.map((ex) =>
+          ex.id === targetId ? { ...ex, imageUrl: compressed } : ex
+        )
       );
+      if (professorGymCode && updatedExercise) {
+        void saveLibraryExercise(professorGymCode, updatedExercise);
+      }
     } catch {
       // Fail gracefully without alert
     } finally {
@@ -572,18 +598,33 @@ export default function App() {
     existingId?: string
   ) => {
     if (existingId) {
+      const target = exercises.find((ex) => ex.id === existingId);
+      const updatedExercise: Exercise | null = target
+        ? { ...target, ...data, gymCode: professorGymCode || target.gymCode }
+        : null;
       setExercises((prev) =>
-        prev.map((ex) => (ex.id === existingId ? { ...ex, ...data } : ex))
+        prev.map((ex) =>
+          ex.id === existingId
+            ? { ...ex, ...data, gymCode: professorGymCode || ex.gymCode }
+            : ex
+        )
       );
+      if (professorGymCode && updatedExercise) {
+        void saveLibraryExercise(professorGymCode, updatedExercise);
+      }
       return;
     }
 
     const newExercise: Exercise = {
       id: `ex-${Date.now()}`,
       completed: false,
+      gymCode: professorGymCode || undefined,
       ...data,
     };
     setExercises((prev) => [newExercise, ...prev]);
+    if (professorGymCode) {
+      void saveLibraryExercise(professorGymCode, newExercise);
+    }
     if (activeFilter !== 'Todos' && activeFilter !== data.muscle) {
       setActiveFilter('Todos');
     }
@@ -594,6 +635,9 @@ export default function App() {
     if (!target) return;
     const snapshot = exercises;
     setExercises((prev) => prev.filter((ex) => ex.id !== id));
+    if (professorGymCode) {
+      void deleteLibraryExercise(professorGymCode, id);
+    }
     showUndoToast(`"${target.name}" removido.`, snapshot);
   };
 

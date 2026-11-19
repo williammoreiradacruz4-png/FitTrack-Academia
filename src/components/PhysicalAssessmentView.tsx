@@ -39,6 +39,7 @@ import {
   getLocalDateKey,
   getReassessmentStatus,
   isTimeBasedExercise,
+  normalizeAcademyCode,
   normalizeCpf,
 } from '../types/workout';
 import { compressImageFile } from '../utils/imageCompression';
@@ -48,11 +49,11 @@ import {
   fetchStudentProfileByCpf,
   fetchStudentWorkoutByCpf,
   fetchStudentsByAcademy,
-  fetchWorkoutStatusMapForCpfs,
-  listLocalStudentProfiles,
-  loadLocalAssessments,
   saveAssessmentRecord,
   saveStudentWorkout,
+  subscribeAssessmentsByGym,
+  subscribeStudentsByGym,
+  subscribeWorkoutStatusByGym,
 } from '../utils/fittrackStore';
 import { AssessmentEvolutionSection } from './AssessmentEvolutionSection';
 
@@ -122,12 +123,8 @@ export function PhysicalAssessmentView({
   libraryExercises,
   professorName,
 }: PhysicalAssessmentViewProps) {
-  const [assessments, setAssessments] = useState<PhysicalAssessment[]>(() =>
-    loadLocalAssessments(academyCode)
-  );
-  const [registeredStudents, setRegisteredStudents] = useState<StudentProfile[]>(
-    () => listLocalStudentProfiles(academyCode)
-  );
+  const [assessments, setAssessments] = useState<PhysicalAssessment[]>([]);
+  const [registeredStudents, setRegisteredStudents] = useState<StudentProfile[]>([]);
   const [workoutStatusMap, setWorkoutStatusMap] = useState<
     Record<string, boolean>
   >({});
@@ -239,18 +236,24 @@ export function PhysicalAssessmentView({
     ]);
     setRegisteredStudents(students);
     setAssessments(history);
-    if (students.length > 0) {
-      const status = await fetchWorkoutStatusMapForCpfs(
-        students.map((s) => s.cpf)
-      );
-      setWorkoutStatusMap(status);
-    } else {
-      setWorkoutStatusMap({});
-    }
   };
 
   useEffect(() => {
-    void loadAcademyRosterAndAssessments();
+    const unsubStudents = subscribeStudentsByGym(academyCode, (students) => {
+      setRegisteredStudents(students);
+    });
+    const unsubAssessments = subscribeAssessmentsByGym(academyCode, (history) => {
+      setAssessments(history);
+    });
+    const unsubWorkouts = subscribeWorkoutStatusByGym(academyCode, (status) => {
+      setWorkoutStatusMap(status);
+    });
+
+    return () => {
+      unsubStudents();
+      unsubAssessments();
+      unsubWorkouts();
+    };
   }, [academyCode]);
 
   const syncDraftsFromExistingWorkout = async (cpfDigits: string) => {
@@ -316,15 +319,15 @@ export function PhysicalAssessmentView({
     setCpfLookupStatus('searching');
     const profile = await fetchStudentProfileByCpf(digits);
     if (profile) {
-      if (
-        academyCode &&
-        profile.academyCode &&
-        profile.academyCode !== academyCode
-      ) {
+      const cleanGym = normalizeAcademyCode(academyCode);
+      const profileGym = normalizeAcademyCode(
+        profile.gymCode || profile.academyCode
+      );
+      if (cleanGym && profileGym && profileGym !== cleanGym) {
         setFoundStudent(null);
         setCpfLookupStatus('idle');
         setCrossAcademyWarning(
-          `O CPF ${profile.formattedCpf} está vinculado a outra academia (${profile.academyName ?? profile.academyCode}).`
+          `O CPF ${profile.formattedCpf} está vinculado a outra academia (${profile.academyName ?? profileGym}).`
         );
         return;
       }
@@ -527,7 +530,14 @@ export function PhysicalAssessmentView({
     const w = parseFloat(weightKg);
     const h = parseFloat(heightCm);
     const cpfDigits = foundStudent?.cpf ?? normalizeCpf(cpfSearchInput);
+    const cleanGymCode = normalizeAcademyCode(academyCode);
 
+    if (cpfDigits.length !== 11) {
+      setErrorMsg(
+        'Busque ou informe um CPF válido (11 dígitos) do aluno antes de salvar a avaliação.'
+      );
+      return;
+    }
     if (!cleanName) {
       setErrorMsg('Busque um aluno pelo CPF ou informe o nome do aluno.');
       return;
@@ -547,11 +557,11 @@ export function PhysicalAssessmentView({
 
     const newItem: PhysicalAssessment = {
       id: `av-${Date.now()}`,
-      academyCode,
+      gymCode: cleanGymCode,
+      academyCode: cleanGymCode,
       studentName: cleanName,
-      studentIdentifier:
-        cpfDigits.length === 11 ? formatCpfMask(cpfDigits) : undefined,
-      studentCpf: cpfDigits.length === 11 ? cpfDigits : undefined,
+      studentIdentifier: formatCpfMask(cpfDigits),
+      studentCpf: cpfDigits,
       studentAge: Number.isNaN(parsedAge) ? undefined : parsedAge,
       studentPhone: studentPhone.trim() || undefined,
       biologicalSex,
@@ -624,18 +634,19 @@ export function PhysicalAssessmentView({
     };
 
     const res = await saveAssessmentRecord(newItem);
-    setAssessments((prev) => [newItem, ...prev]);
+    if (!res.syncedToCloud) {
+      setErrorMsg(
+        'Não foi possível salvar a avaliação no Firebase. Verifique sua conexão e tente novamente.'
+      );
+      return;
+    }
+
     resetClinicalMeasurementFields();
-    setSavedNotice(
-      res.syncedToCloud
-        ? 'Avaliação salva no Firebase'
-        : 'Avaliação salva localmente'
-    );
+    setSavedNotice('Avaliação sincronizada no Firebase');
     window.setTimeout(() => setSavedNotice(''), 3500);
   };
 
   const handleDeleteAssessment = async (id: string) => {
-    setAssessments((prev) => prev.filter((item) => item.id !== id));
     await deleteAssessmentRecord(id);
   };
 
@@ -719,9 +730,11 @@ export function PhysicalAssessmentView({
     setIsReleasingWorkout(true);
     try {
       const nowIso = new Date().toISOString();
+      const cleanGymCode = normalizeAcademyCode(academyCode);
       const res = await saveStudentWorkout({
         cpf: cpfDigits,
-        academyCode,
+        gymCode: cleanGymCode,
+        academyCode: cleanGymCode,
         academyName,
         studentName: targetName || formatCpfMask(cpfDigits),
         exercises: chosenExercises,
@@ -730,15 +743,18 @@ export function PhysicalAssessmentView({
         professorName,
       });
 
+      if (!res.syncedToCloud) {
+        setWorkoutErrorMsg(
+          'Não foi possível sincronizar o treino com o Firebase. Verifique sua conexão e tente novamente.'
+        );
+        return;
+      }
+
       setWorkoutStatusMap((prev) => ({ ...prev, [cpfDigits]: true }));
       setWorkoutReleasedMsg(
         `Treino com ${chosenExercises.length} exercício${
           chosenExercises.length > 1 ? 's' : ''
-        } liberado para ${targetName || formatCpfMask(cpfDigits)}${
-          res.syncedToCloud
-            ? ' (sincronizado com Firebase).'
-            : ' (salvo localmente).'
-        }`
+        } liberado para ${targetName || formatCpfMask(cpfDigits)} (sincronizado em tempo real).`
       );
     } finally {
       setIsReleasingWorkout(false);

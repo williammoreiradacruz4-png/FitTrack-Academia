@@ -27,7 +27,6 @@ import {
   deleteAcademyByCode,
   fetchAcademyByCode,
   fetchStudentProfileByCpf,
-  runOneTimeMaisVidaCleanup,
   saveAcademy,
   saveStudentProfile,
   updateAcademyPassword,
@@ -71,6 +70,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
   const [academyNameInput, setAcademyNameInput] = useState('');
   const [academyCodeInput, setAcademyCodeInput] = useState('');
   const [profNameInput, setProfNameInput] = useState('');
+  const [profCpfInput, setProfCpfInput] = useState('');
   const [profRegisterPassword, setProfRegisterPassword] = useState('');
   const [academyLogoInput, setAcademyLogoInput] = useState<string | undefined>(undefined);
 
@@ -90,13 +90,6 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
   const [successMsg, setSuccessMsg] = useState('');
 
   useEffect(() => {
-    const removed = runOneTimeMaisVidaCleanup();
-    if (removed) {
-      setSuccessMsg(
-        'A academia "Mais Vida Academia" foi excluída. Você já pode cadastrar uma nova academia ou recomeçar.'
-      );
-    }
-
     const params = new URLSearchParams(window.location.search);
     const rawGym = params.get('gym');
     const cleanGym = rawGym ? normalizeAcademyCode(rawGym) : '';
@@ -253,6 +246,12 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         );
         return;
       }
+      if (profile.role === 'prof') {
+        setErrorMsg(
+          'Este CPF está cadastrado como Professor. Use a aba "Sou Professor" para acessar o painel.'
+        );
+        return;
+      }
 
       if (profile.password) {
         if (!studentLoginPassword) {
@@ -265,8 +264,9 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         }
       }
 
-      const linkedAcademy = profile.academyCode
-        ? await fetchAcademyByCode(profile.academyCode)
+      const targetGymCode = profile.gymCode || profile.academyCode;
+      const linkedAcademy = targetGymCode
+        ? await fetchAcademyByCode(targetGymCode)
         : null;
 
       onLogin({
@@ -274,7 +274,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         name: profile.name,
         identifier: formatCpfMask(cpfDigits),
         cpf: cpfDigits,
-        academyCode: profile.academyCode,
+        academyCode: targetGymCode,
         academyName: linkedAcademy?.name ?? profile.academyName,
         academyLogo: linkedAcademy?.logoUrl,
         loggedInAt: new Date().toISOString(),
@@ -345,8 +345,10 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       const profile: StudentProfile = {
         cpf: cpfDigits,
         formattedCpf: formatCpfMask(cpfDigits),
+        gymCode: academy.gymCode,
         academyCode: academy.code,
         academyName: academy.name,
+        role: 'student',
         name: cleanName,
         email: cleanEmail,
         password: studentPassword,
@@ -358,14 +360,20 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         updatedAt: nowIso,
       };
 
-      await saveStudentProfile(profile);
+      const savedRes = await saveStudentProfile(profile);
+      if (!savedRes.syncedToCloud) {
+        setErrorMsg(
+          'Não foi possível salvar seu cadastro no Firebase. Verifique sua conexão e tente novamente.'
+        );
+        return;
+      }
 
       onLogin({
         role: 'student',
         name: cleanName,
         identifier: profile.formattedCpf,
         cpf: cpfDigits,
-        academyCode: academy.code,
+        academyCode: academy.gymCode,
         academyName: academy.name,
         academyLogo: academy.logoUrl,
         loggedInAt: nowIso,
@@ -406,8 +414,9 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       onLogin({
         role: 'professor',
         name: academy.professorName,
-        identifier: academy.code,
-        academyCode: academy.code,
+        identifier: academy.gymCode,
+        cpf: academy.professorCpf,
+        academyCode: academy.gymCode,
         academyName: academy.name,
         academyLogo: academy.logoUrl,
         loggedInAt: new Date().toISOString(),
@@ -424,6 +433,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
     const cleanAcademyName = academyNameInput.trim();
     const cleanCode = normalizeAcademyCode(academyCodeInput);
     const cleanProfName = profNameInput.trim();
+    const profCpfDigits = normalizeCpf(profCpfInput);
 
     if (!cleanAcademyName) {
       setErrorMsg('Informe o nome da Academia ou Personal Trainer.');
@@ -435,6 +445,10 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
     }
     if (!cleanProfName) {
       setErrorMsg('Informe o nome do professor responsável.');
+      return;
+    }
+    if (profCpfDigits.length !== 11) {
+      setErrorMsg('Informe um CPF válido (11 dígitos) para o professor responsável.');
       return;
     }
     if (profRegisterPassword.length < 4) {
@@ -453,20 +467,46 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       const nowIso = new Date().toISOString();
       const newAcademy: Academy = {
         code: cleanCode,
+        gymCode: cleanCode,
         name: cleanAcademyName,
         professorName: cleanProfName,
+        professorCpf: profCpfDigits,
         password: profRegisterPassword,
         logoUrl: academyLogoInput,
         createdAt: nowIso,
       };
 
-      await saveAcademy(newAcademy);
+      const gymRes = await saveAcademy(newAcademy);
+      if (!gymRes.syncedToCloud) {
+        setErrorMsg(
+          'Não foi possível criar a academia no Firebase. Verifique sua conexão e tente novamente.'
+        );
+        return;
+      }
+
+      await saveStudentProfile({
+        cpf: profCpfDigits,
+        formattedCpf: formatCpfMask(profCpfDigits),
+        gymCode: cleanCode,
+        academyCode: cleanCode,
+        academyName: cleanAcademyName,
+        role: 'prof',
+        name: cleanProfName,
+        password: profRegisterPassword,
+        birthDate: '',
+        age: 0,
+        phone: '',
+        biologicalSex: 'Masculino',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      });
 
       onLogin({
         role: 'professor',
         name: newAcademy.professorName,
-        identifier: newAcademy.code,
-        academyCode: newAcademy.code,
+        identifier: newAcademy.gymCode,
+        cpf: profCpfDigits,
+        academyCode: newAcademy.gymCode,
         academyName: newAcademy.name,
         academyLogo: newAcademy.logoUrl,
         loggedInAt: nowIso,
@@ -1158,21 +1198,42 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                   </div>
                 </div>
 
-                <div>
-                  <label
-                    htmlFor="reg-prof-pass"
-                    className="block text-xs font-medium text-zinc-300 mb-1"
-                  >
-                    Senha de acesso do professor
-                  </label>
-                  <input
-                    id="reg-prof-pass"
-                    type="password"
-                    placeholder="Mínimo 4 caracteres"
-                    value={profRegisterPassword}
-                    onChange={(e) => setProfRegisterPassword(e.target.value)}
-                    className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-purple-500"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label
+                      htmlFor="reg-prof-cpf"
+                      className="block text-xs font-medium text-zinc-300 mb-1"
+                    >
+                      CPF do professor
+                    </label>
+                    <input
+                      id="reg-prof-cpf"
+                      type="text"
+                      inputMode="numeric"
+                      required
+                      placeholder="000.000.000-00"
+                      value={profCpfInput}
+                      onChange={(e) => setProfCpfInput(formatCpfMask(e.target.value))}
+                      className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm font-mono tabular-nums text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="reg-prof-pass"
+                      className="block text-xs font-medium text-zinc-300 mb-1"
+                    >
+                      Senha de acesso do professor
+                    </label>
+                    <input
+                      id="reg-prof-pass"
+                      type="password"
+                      placeholder="Mínimo 4 caracteres"
+                      value={profRegisterPassword}
+                      onChange={(e) => setProfRegisterPassword(e.target.value)}
+                      className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
                 </div>
 
                 <div>

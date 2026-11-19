@@ -62,11 +62,17 @@ export function LinkAcademyModal({
       if (studentProfile) {
         updatedProfile = {
           ...studentProfile,
+          gymCode: academy.gymCode,
           academyCode: academy.code,
           academyName: academy.name,
+          role: studentProfile.role ?? 'student',
           updatedAt: new Date().toISOString(),
         };
-        await saveStudentProfile(updatedProfile);
+        const res = await saveStudentProfile(updatedProfile);
+        if (!res.syncedToCloud) {
+          setErrorMsg('Não foi possível salvar o vínculo no Firebase. Verifique sua conexão.');
+          return;
+        }
       }
 
       onLinked(academy, updatedProfile);

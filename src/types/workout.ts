@@ -56,6 +56,8 @@ export interface Exercise {
   videoDurationLabel?: string;
   days?: DayOfWeek[];
   isConjugated?: boolean;
+  gymCode?: string;
+  updatedAt?: string;
 }
 
 export const MUSCLE_GROUPS: MuscleGroup[] = [
@@ -233,19 +235,23 @@ export interface PosturePhotos {
 }
 
 export interface Academy {
-  code: string; // normalized uppercase code (document ID in fittrack_academies)
+  code: string; // normalized uppercase gymCode (document ID in fittrack_gyms)
+  gymCode: string; // normalized uppercase gymCode field in Firestore
   name: string;
   professorName: string;
+  professorCpf?: string; // clean 11-digit CPF
   password: string;
   logoUrl?: string;
   createdAt: string;
 }
 
 export interface StudentProfile {
-  cpf: string; // 11 digits only (key in fittrack_users)
+  cpf: string; // 11 digits only (document ID in fittrack_users)
   formattedCpf: string;
+  gymCode: string;
   academyCode: string;
   academyName?: string;
+  role: 'student' | 'prof';
   name: string;
   email?: string;
   password?: string;
@@ -260,7 +266,8 @@ export interface StudentProfile {
 }
 
 export interface StudentWorkoutRecord {
-  cpf: string; // 11 digits only (key in fittrack_student_workouts)
+  cpf: string; // 11 digits only (document ID in fittrack_student_workouts)
+  gymCode: string;
   academyCode: string;
   academyName?: string;
   studentName: string;
@@ -274,7 +281,7 @@ export interface UserSession {
   role: UserRole;
   name: string;
   identifier: string;
-  cpf?: string; // normalized 11-digit CPF when role === 'student'
+  cpf?: string; // normalized 11-digit CPF
   academyCode?: string;
   academyName?: string;
   academyLogo?: string;
@@ -283,10 +290,11 @@ export interface UserSession {
 
 export interface PhysicalAssessment {
   id: string;
+  gymCode: string;
   academyCode?: string;
   studentName: string;
   studentIdentifier?: string;
-  studentCpf?: string;
+  studentCpf: string; // clean 11-digit CPF
   studentAge?: number;
   studentPhone?: string;
   biologicalSex?: BiologicalSex;

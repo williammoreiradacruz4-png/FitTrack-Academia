@@ -16,7 +16,7 @@ import {
 } from '../types/workout';
 import {
   fetchAssessmentsByStudentCpf,
-  loadLocalAssessmentsByCpf,
+  subscribeAssessmentsByStudentCpf,
 } from '../utils/fittrackStore';
 import { AssessmentEvolutionSection } from './AssessmentEvolutionSection';
 
@@ -40,9 +40,7 @@ export function StudentAssessmentView({
   studentCpf,
   studentName,
 }: StudentAssessmentViewProps) {
-  const [assessments, setAssessments] = useState<PhysicalAssessment[]>(() =>
-    loadLocalAssessmentsByCpf(studentCpf)
-  );
+  const [assessments, setAssessments] = useState<PhysicalAssessment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadData = async () => {
@@ -56,7 +54,12 @@ export function StudentAssessmentView({
   };
 
   useEffect(() => {
-    void loadData();
+    setIsLoading(true);
+    const unsubscribe = subscribeAssessmentsByStudentCpf(studentCpf, (list) => {
+      setAssessments(list);
+      setIsLoading(false);
+    });
+    return () => unsubscribe();
   }, [studentCpf]);
 
   const latest = assessments[0] ?? null;
