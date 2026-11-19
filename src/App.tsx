@@ -143,6 +143,8 @@ export default function App() {
   const [detailsExercise, setDetailsExercise] = useState<Exercise | null>(null);
   const [undoToast, setUndoToast] = useState<UndoToastState | null>(null);
   const [reminderBanner, setReminderBanner] = useState<ActiveReminderBanner | null>(null);
+  const [gymMissingInCloud, setGymMissingInCloud] = useState(false);
+  const [syncWarning, setSyncWarning] = useState('');
   const [showSplash, setShowSplash] = useState(true);
 
   const uploadTargetIdRef = useRef<string | null>(null);
@@ -266,9 +268,18 @@ export default function App() {
   // Keep academy name and custom logo synced in real time with Firestore (fittrack_gyms)
   useEffect(() => {
     const code = session?.academyCode;
-    if (!code) return;
-    const unsubscribe = subscribeAcademyByCode(code, (academy) => {
-      if (!academy) return;
+    if (!code) {
+      setGymMissingInCloud(false);
+      return;
+    }
+    const unsubscribe = subscribeAcademyByCode(code, (academy, fromServer) => {
+      if (!academy) {
+        if (fromServer) {
+          setGymMissingInCloud(true);
+        }
+        return;
+      }
+      setGymMissingInCloud(false);
       setSession((prev) => {
         if (!prev || normalizeAcademyCode(prev.academyCode ?? '') !== academy.gymCode) {
           return prev;
@@ -498,7 +509,15 @@ export default function App() {
       if (professorGymCode && changedId) {
         const updatedItem = nextList.find((ex) => ex.id === changedId);
         if (updatedItem) {
-          void saveLibraryExercise(professorGymCode, updatedItem);
+          void saveLibraryExercise(professorGymCode, updatedItem).then((res) => {
+            if (!res.syncedToCloud) {
+              setSyncWarning(
+                'Não foi possível sincronizar este exercício com o Firebase. Verifique sua conexão.'
+              );
+            } else {
+              setSyncWarning('');
+            }
+          });
         }
       }
       return;
@@ -574,7 +593,15 @@ export default function App() {
         )
       );
       if (professorGymCode && updatedExercise) {
-        void saveLibraryExercise(professorGymCode, updatedExercise);
+        void saveLibraryExercise(professorGymCode, updatedExercise).then((res) => {
+          if (!res.syncedToCloud) {
+            setSyncWarning(
+              'Não foi possível sincronizar a imagem com o Firebase. Tente uma imagem menor ou verifique sua conexão.'
+            );
+          } else {
+            setSyncWarning('');
+          }
+        });
       }
     } catch {
       // Fail gracefully without alert
@@ -610,7 +637,15 @@ export default function App() {
         )
       );
       if (professorGymCode && updatedExercise) {
-        void saveLibraryExercise(professorGymCode, updatedExercise);
+        void saveLibraryExercise(professorGymCode, updatedExercise).then((res) => {
+          if (!res.syncedToCloud) {
+            setSyncWarning(
+              'Não foi possível salvar a alteração no Firebase. Verifique sua conexão.'
+            );
+          } else {
+            setSyncWarning('');
+          }
+        });
       }
       return;
     }
@@ -623,7 +658,15 @@ export default function App() {
     };
     setExercises((prev) => [newExercise, ...prev]);
     if (professorGymCode) {
-      void saveLibraryExercise(professorGymCode, newExercise);
+      void saveLibraryExercise(professorGymCode, newExercise).then((res) => {
+        if (!res.syncedToCloud) {
+          setSyncWarning(
+            'Não foi possível sincronizar o novo exercício com o Firebase. Verifique sua conexão.'
+          );
+        } else {
+          setSyncWarning('');
+        }
+      });
     }
     if (activeFilter !== 'Todos' && activeFilter !== data.muscle) {
       setActiveFilter('Todos');
@@ -636,7 +679,15 @@ export default function App() {
     const snapshot = exercises;
     setExercises((prev) => prev.filter((ex) => ex.id !== id));
     if (professorGymCode) {
-      void deleteLibraryExercise(professorGymCode, id);
+      void deleteLibraryExercise(professorGymCode, id).then((res) => {
+        if (!res.syncedToCloud) {
+          setSyncWarning(
+            'Não foi possível remover o exercício no Firebase. Verifique sua conexão.'
+          );
+        } else {
+          setSyncWarning('');
+        }
+      });
     }
     showUndoToast(`"${target.name}" removido.`, snapshot);
   };
@@ -688,6 +739,44 @@ export default function App() {
           onAcademyBadgeClick={() => setIsLinkAcademyModalOpen(true)}
           onLogout={handleLogout}
         />
+
+      {(gymMissingInCloud || syncWarning) && (
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-3 space-y-2">
+          {gymMissingInCloud && (
+            <div
+              role="alert"
+              className="rounded-xl bg-amber-500/15 border border-amber-500/50 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-200"
+            >
+              <span>
+                A academia <strong className="font-mono">{session.academyCode}</strong> não foi encontrada no Firebase (<span className="font-mono">fittrack_gyms</span>). Clique em <strong>Sair</strong> e cadastre ou vincule uma academia ativa para sincronizar entre PC e celular.
+              </span>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="min-h-[36px] px-3 py-1.5 rounded-lg bg-amber-500 text-zinc-950 font-bold cursor-pointer"
+              >
+                Sair e recadastrar
+              </button>
+            </div>
+          )}
+          {syncWarning && (
+            <div
+              role="alert"
+              className="rounded-xl bg-rose-500/15 border border-rose-500/40 px-4 py-2.5 flex items-center justify-between gap-3 text-xs text-rose-200"
+            >
+              <span>{syncWarning}</span>
+              <button
+                type="button"
+                onClick={() => setSyncWarning('')}
+                aria-label="Fechar aviso de sincronização"
+                className="p-1 text-rose-300 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {isProfessor ? (
         <nav

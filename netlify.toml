@@ -3,7 +3,7 @@
   publish = "dist"
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"
 
 # SPA fallback for client-side routes (static files like sw.js and manifest.webmanifest are served directly)
 [[redirects]]
@@ -11,7 +11,12 @@
   to = "/index.html"
   status = 200
 
-# Ensure PWA Service Worker and Manifest are never served stale
+# Ensure index.html, PWA Service Worker and Manifest are never served stale
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
 [[headers]]
   for = "/sw.js"
   [headers.values]

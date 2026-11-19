@@ -142,21 +142,25 @@ export async function fetchAcademyByCode(
 
 export function subscribeAcademyByCode(
   rawCode: string,
-  onUpdate: (academy: Academy | null) => void
+  onUpdate: (academy: Academy | null, fromServer: boolean) => void
 ): Unsubscribe {
   const code = normalizeAcademyCode(rawCode);
   if (!code) {
-    onUpdate(null);
+    onUpdate(null, false);
     return () => undefined;
   }
 
   return onSnapshot(
     doc(db, 'fittrack_gyms', code),
     (snap) => {
+      const fromServer = !snap.metadata.fromCache;
       if (snap.exists()) {
-        onUpdate(normalizeAcademyRecord(snap.data() as Partial<Academy>, code));
+        onUpdate(
+          normalizeAcademyRecord(snap.data() as Partial<Academy>, code),
+          fromServer
+        );
       } else {
-        onUpdate(null);
+        onUpdate(null, fromServer);
       }
     },
     (error) => {
@@ -282,21 +286,31 @@ export async function fetchStudentsByAcademy(
   if (!cleanCode || isBrowserOffline()) return [];
 
   try {
-    const q = query(
-      collection(db, 'fittrack_users'),
-      where('gymCode', '==', cleanCode)
-    );
-    const snap = await getDocs(q);
-    const list: StudentProfile[] = [];
-    snap.forEach((docSnap) => {
-      const normalized = normalizeUserRecord(
-        docSnap.data() as Partial<StudentProfile>
-      );
-      if (normalized.cpf.length === 11 && normalized.role !== 'prof') {
-        list.push(normalized);
-      }
+    const byCpf = new Map<string, StudentProfile>();
+    const [gymSnap, legacySnap] = await Promise.all([
+      getDocs(
+        query(collection(db, 'fittrack_users'), where('gymCode', '==', cleanCode))
+      ),
+      getDocs(
+        query(
+          collection(db, 'fittrack_users'),
+          where('academyCode', '==', cleanCode)
+        )
+      ),
+    ]);
+
+    [gymSnap, legacySnap].forEach((snap) => {
+      snap.forEach((docSnap) => {
+        const normalized = normalizeUserRecord(
+          docSnap.data() as Partial<StudentProfile>
+        );
+        if (normalized.cpf.length === 11 && normalized.role !== 'prof') {
+          byCpf.set(normalized.cpf, normalized);
+        }
+      });
     });
-    return list.sort((a, b) =>
+
+    return Array.from(byCpf.values()).sort((a, b) =>
       (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')
     );
   } catch (error) {
@@ -315,30 +329,64 @@ export function subscribeStudentsByGym(
     return () => undefined;
   }
 
-  const q = query(
-    collection(db, 'fittrack_users'),
-    where('gymCode', '==', cleanCode)
-  );
+  const gymStudents = new Map<string, StudentProfile>();
+  const legacyStudents = new Map<string, StudentProfile>();
 
-  return onSnapshot(
-    q,
+  const emitMerged = () => {
+    const merged = new Map<string, StudentProfile>();
+    legacyStudents.forEach((val, key) => merged.set(key, val));
+    gymStudents.forEach((val, key) => merged.set(key, val));
+    const list = Array.from(merged.values()).sort((a, b) =>
+      (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')
+    );
+    onUpdate(list);
+  };
+
+  const unsubGym = onSnapshot(
+    query(collection(db, 'fittrack_users'), where('gymCode', '==', cleanCode)),
     (snap) => {
-      const list: StudentProfile[] = [];
+      gymStudents.clear();
       snap.forEach((docSnap) => {
         const normalized = normalizeUserRecord(
           docSnap.data() as Partial<StudentProfile>
         );
         if (normalized.cpf.length === 11 && normalized.role !== 'prof') {
-          list.push(normalized);
+          gymStudents.set(normalized.cpf, normalized);
         }
       });
-      list.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
-      onUpdate(list);
+      emitMerged();
     },
     (error) => {
       logFirestoreError(error, OperationType.LIST, 'fittrack_users');
     }
   );
+
+  const unsubLegacy = onSnapshot(
+    query(
+      collection(db, 'fittrack_users'),
+      where('academyCode', '==', cleanCode)
+    ),
+    (snap) => {
+      legacyStudents.clear();
+      snap.forEach((docSnap) => {
+        const normalized = normalizeUserRecord(
+          docSnap.data() as Partial<StudentProfile>
+        );
+        if (normalized.cpf.length === 11 && normalized.role !== 'prof') {
+          legacyStudents.set(normalized.cpf, normalized);
+        }
+      });
+      emitMerged();
+    },
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, 'fittrack_users');
+    }
+  );
+
+  return () => {
+    unsubGym();
+    unsubLegacy();
+  };
 }
 
 /* ==================== fittrack_library (Biblioteca de Exercícios) ==================== */
@@ -398,19 +446,23 @@ export async function saveLibraryExercise(
 export async function deleteLibraryExercise(
   rawGymCode: string,
   exerciseId: string
-): Promise<void> {
+): Promise<{ syncedToCloud: boolean }> {
   const cleanCode = normalizeAcademyCode(rawGymCode);
-  if (!cleanCode || !exerciseId || isBrowserOffline()) return;
+  if (!cleanCode || !exerciseId || isBrowserOffline()) {
+    return { syncedToCloud: false };
+  }
 
   const docId = getLibraryDocId(cleanCode, exerciseId);
   try {
     await deleteDoc(doc(db, 'fittrack_library', docId));
+    return { syncedToCloud: true };
   } catch (error) {
     logFirestoreError(
       error,
       OperationType.DELETE,
       `fittrack_library/${docId}`
     );
+    return { syncedToCloud: false };
   }
 }
 
@@ -434,7 +486,7 @@ export function subscribeLibraryByGym(
   return onSnapshot(
     q,
     (snap) => {
-      if (snap.empty && !initialSeedChecked) {
+      if (snap.empty && !initialSeedChecked && !snap.metadata.fromCache) {
         initialSeedChecked = true;
         if (defaults.length > 0 && !isBrowserOffline()) {
           const nowIso = new Date().toISOString();
@@ -462,7 +514,9 @@ export function subscribeLibraryByGym(
         return;
       }
 
-      initialSeedChecked = true;
+      if (!snap.metadata.fromCache) {
+        initialSeedChecked = true;
+      }
       const list: Exercise[] = [];
       snap.forEach((docSnap) => {
         const data = docSnap.data() as Exercise;
@@ -597,30 +651,72 @@ export function subscribeWorkoutStatusByGym(
     return () => undefined;
   }
 
-  const q = query(
-    collection(db, 'fittrack_student_workouts'),
-    where('gymCode', '==', cleanCode)
-  );
+  const gymStatus = new Map<string, boolean>();
+  const legacyStatus = new Map<string, boolean>();
 
-  return onSnapshot(
-    q,
+  const emitMerged = () => {
+    const merged: Record<string, boolean> = {};
+    legacyStatus.forEach((val, key) => {
+      merged[key] = val;
+    });
+    gymStatus.forEach((val, key) => {
+      merged[key] = val;
+    });
+    onUpdate(merged);
+  };
+
+  const unsubGym = onSnapshot(
+    query(
+      collection(db, 'fittrack_student_workouts'),
+      where('gymCode', '==', cleanCode)
+    ),
     (snap) => {
-      const statusMap: Record<string, boolean> = {};
+      gymStatus.clear();
       snap.forEach((docSnap) => {
         const data = docSnap.data() as Partial<StudentWorkoutRecord>;
         const cpf = normalizeCpf(data.cpf ?? docSnap.id);
         if (cpf.length === 11) {
-          statusMap[cpf] = Boolean(
-            Array.isArray(data.exercises) && data.exercises.length > 0
+          gymStatus.set(
+            cpf,
+            Boolean(Array.isArray(data.exercises) && data.exercises.length > 0)
           );
         }
       });
-      onUpdate(statusMap);
+      emitMerged();
     },
     (error) => {
       logFirestoreError(error, OperationType.LIST, 'fittrack_student_workouts');
     }
   );
+
+  const unsubLegacy = onSnapshot(
+    query(
+      collection(db, 'fittrack_student_workouts'),
+      where('academyCode', '==', cleanCode)
+    ),
+    (snap) => {
+      legacyStatus.clear();
+      snap.forEach((docSnap) => {
+        const data = docSnap.data() as Partial<StudentWorkoutRecord>;
+        const cpf = normalizeCpf(data.cpf ?? docSnap.id);
+        if (cpf.length === 11) {
+          legacyStatus.set(
+            cpf,
+            Boolean(Array.isArray(data.exercises) && data.exercises.length > 0)
+          );
+        }
+      });
+      emitMerged();
+    },
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, 'fittrack_student_workouts');
+    }
+  );
+
+  return () => {
+    unsubGym();
+    unsubLegacy();
+  };
 }
 
 /* ==================== fittrack_assessments (Avaliações Físicas) ==================== */
@@ -661,19 +757,32 @@ export async function fetchAssessmentsByAcademy(
   if (!cleanCode || isBrowserOffline()) return [];
 
   try {
-    const q = query(
-      collection(db, 'fittrack_assessments'),
-      where('gymCode', '==', cleanCode)
-    );
-    const snap = await getDocs(q);
-    const list: PhysicalAssessment[] = [];
-    snap.forEach((d) => {
-      const data = d.data() as PhysicalAssessment;
-      if (data && data.id) {
-        list.push(data);
-      }
+    const byId = new Map<string, PhysicalAssessment>();
+    const [gymSnap, legacySnap] = await Promise.all([
+      getDocs(
+        query(
+          collection(db, 'fittrack_assessments'),
+          where('gymCode', '==', cleanCode)
+        )
+      ),
+      getDocs(
+        query(
+          collection(db, 'fittrack_assessments'),
+          where('academyCode', '==', cleanCode)
+        )
+      ),
+    ]);
+
+    [gymSnap, legacySnap].forEach((snap) => {
+      snap.forEach((d) => {
+        const data = d.data() as PhysicalAssessment;
+        if (data && data.id) {
+          byId.set(data.id, data);
+        }
+      });
     });
-    return list.sort((a, b) => {
+
+    return Array.from(byId.values()).sort((a, b) => {
       const dateCmp = (b.date ?? '').localeCompare(a.date ?? '');
       return dateCmp !== 0 ? dateCmp : b.id.localeCompare(a.id);
     });
@@ -693,31 +802,64 @@ export function subscribeAssessmentsByGym(
     return () => undefined;
   }
 
-  const q = query(
-    collection(db, 'fittrack_assessments'),
-    where('gymCode', '==', cleanCode)
-  );
+  const gymItems = new Map<string, PhysicalAssessment>();
+  const legacyItems = new Map<string, PhysicalAssessment>();
 
-  return onSnapshot(
-    q,
+  const emitMerged = () => {
+    const merged = new Map<string, PhysicalAssessment>();
+    legacyItems.forEach((val, key) => merged.set(key, val));
+    gymItems.forEach((val, key) => merged.set(key, val));
+    const list = Array.from(merged.values()).sort((a, b) => {
+      const dateCmp = (b.date ?? '').localeCompare(a.date ?? '');
+      return dateCmp !== 0 ? dateCmp : b.id.localeCompare(a.id);
+    });
+    onUpdate(list);
+  };
+
+  const unsubGym = onSnapshot(
+    query(
+      collection(db, 'fittrack_assessments'),
+      where('gymCode', '==', cleanCode)
+    ),
     (snap) => {
-      const list: PhysicalAssessment[] = [];
+      gymItems.clear();
       snap.forEach((d) => {
         const data = d.data() as PhysicalAssessment;
         if (data && data.id) {
-          list.push(data);
+          gymItems.set(data.id, data);
         }
       });
-      list.sort((a, b) => {
-        const dateCmp = (b.date ?? '').localeCompare(a.date ?? '');
-        return dateCmp !== 0 ? dateCmp : b.id.localeCompare(a.id);
-      });
-      onUpdate(list);
+      emitMerged();
     },
     (error) => {
       logFirestoreError(error, OperationType.LIST, 'fittrack_assessments');
     }
   );
+
+  const unsubLegacy = onSnapshot(
+    query(
+      collection(db, 'fittrack_assessments'),
+      where('academyCode', '==', cleanCode)
+    ),
+    (snap) => {
+      legacyItems.clear();
+      snap.forEach((d) => {
+        const data = d.data() as PhysicalAssessment;
+        if (data && data.id) {
+          legacyItems.set(data.id, data);
+        }
+      });
+      emitMerged();
+    },
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, 'fittrack_assessments');
+    }
+  );
+
+  return () => {
+    unsubGym();
+    unsubLegacy();
+  };
 }
 
 export async function fetchAssessmentsByStudentCpf(
