@@ -129,7 +129,7 @@ export function Header({
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {showWorkoutActions && (
+          {!isProfessor && showWorkoutActions && (
             <span className="text-xs font-mono tabular-nums text-zinc-300 hidden lg:inline whitespace-nowrap shrink-0 mr-1">
               {completedCount}/{totalCount}
             </span>
@@ -175,7 +175,7 @@ export function Header({
 
           <PWAInstallButton variant="header" />
 
-          {showWorkoutActions && (
+          {!isProfessor && showWorkoutActions && (
             <button
               type="button"
               onClick={onResetChecks}
@@ -209,8 +209,8 @@ export function Header({
         </div>
       </div>
 
-      {/* Integrated bottom progress hairline */}
-      {showWorkoutActions && (
+      {/* Integrated bottom progress hairline (Student only) */}
+      {!isProfessor && showWorkoutActions && (
         <div
           className="absolute bottom-0 left-0 right-0 h-[3px] bg-zinc-800/90 overflow-hidden"
           role="progressbar"

@@ -1,5 +1,11 @@
 import { initializeApp } from 'firebase/app';
-import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
+import {
+  doc,
+  Firestore,
+  getDocFromServer,
+  getFirestore,
+  initializeFirestore,
+} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyAXKTnEtWJnMMi_Nl80lMTkkbdUUVruRys',
@@ -11,7 +17,18 @@ const firebaseConfig = {
 };
 
 export const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+
+function createFirestoreDb(): Firestore {
+  try {
+    return initializeFirestore(app, {
+      experimentalForceLongPolling: true,
+    });
+  } catch {
+    return getFirestore(app);
+  }
+}
+
+export const db = createFirestoreDb();
 
 export enum OperationType {
   CREATE = 'create',
@@ -57,16 +74,21 @@ export function logFirestoreError(
 }
 
 export async function testFirestoreConnection(): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return false;
+  }
   try {
     await getDocFromServer(doc(db, 'fittrack_users', '_connection_check'));
     return true;
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
+    if (
+      error instanceof Error &&
+      (error.message.includes('the client is offline') ||
+        error.message.includes('Could not reach Cloud Firestore'))
+    ) {
       console.warn('Firestore offline — utilizando cache local como fallback.');
       return false;
     }
     return true;
   }
 }
-
-void testFirestoreConnection();

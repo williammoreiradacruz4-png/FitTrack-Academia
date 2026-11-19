@@ -53,10 +53,12 @@ export function ExerciseCard({
           .join(', ')
       : '';
 
+  const isCompletedForDisplay = !isProfessor && exercise.completed;
+
   return (
     <article
       className={`rounded-2xl border p-4 transition-colors duration-150 flex items-start sm:items-center gap-3.5 ${
-        exercise.completed
+        isCompletedForDisplay
           ? 'bg-[#101215] border-orange-500/35'
           : 'bg-[#14161a] border-zinc-800 hover:border-zinc-700'
       }`}
@@ -142,7 +144,7 @@ export function ExerciseCard({
               <span className="text-zinc-300">Vídeo</span>
             </>
           )}
-          {exercise.completed && (
+          {isCompletedForDisplay && (
             <>
               <span aria-hidden="true">·</span>
               <span className="font-medium text-orange-400">Concluído</span>
@@ -156,7 +158,7 @@ export function ExerciseCard({
           onClick={() => onSelectExercise(exercise)}
           title={`Ver execução e vídeo de ${exercise.name}`}
           className={`w-full text-left text-base font-semibold leading-snug mt-0.5 truncate transition-colors cursor-pointer hover:text-orange-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 rounded ${
-            exercise.completed ? 'line-through text-zinc-400' : 'text-zinc-100'
+            isCompletedForDisplay ? 'line-through text-zinc-400' : 'text-zinc-100'
           }`}
         >
           {exercise.name}
@@ -249,29 +251,31 @@ export function ExerciseCard({
         </div>
       </div>
 
-      {/* Right Checkbox Hitbox (>= 44x44px) */}
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked={exercise.completed}
-        aria-label={
-          exercise.completed
-            ? `Desmarcar ${exercise.name} como concluído`
-            : `Marcar ${exercise.name} como concluído`
-        }
-        onClick={() => onToggleComplete(exercise.id)}
-        className="min-w-[44px] min-h-[44px] self-center flex items-center justify-center rounded-xl cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 shrink-0"
-      >
-        <span
-          className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-colors duration-150 ${
+      {/* Right Checkbox Hitbox (>= 44x44px) — Student only */}
+      {!isProfessor && (
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={exercise.completed}
+          aria-label={
             exercise.completed
-              ? 'bg-orange-500 border-orange-500 text-zinc-950'
-              : 'bg-[#0b0c0e] border-zinc-500 group-hover:border-orange-400'
-          }`}
+              ? `Desmarcar ${exercise.name} como concluído`
+              : `Marcar ${exercise.name} como concluído`
+          }
+          onClick={() => onToggleComplete(exercise.id)}
+          className="min-w-[44px] min-h-[44px] self-center flex items-center justify-center rounded-xl cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 shrink-0"
         >
-          {exercise.completed && <Check className="w-5 h-5 stroke-[3]" aria-hidden="true" />}
-        </span>
-      </button>
+          <span
+            className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-colors duration-150 ${
+              exercise.completed
+                ? 'bg-orange-500 border-orange-500 text-zinc-950'
+                : 'bg-[#0b0c0e] border-zinc-500 group-hover:border-orange-400'
+            }`}
+          >
+            {exercise.completed && <Check className="w-5 h-5 stroke-[3]" aria-hidden="true" />}
+          </span>
+        </button>
+      )}
     </article>
   );
 }

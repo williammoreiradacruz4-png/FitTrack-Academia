@@ -67,6 +67,10 @@ function writeLocalMap<T>(key: string, map: Record<string, T>) {
 
 const ACADEMY_FALLBACK_PREFIX = 'ACADEMY_';
 
+function isBrowserOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
 function isPermissionDeniedError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const code = 'code' in error ? String((error as { code?: unknown }).code) : '';
@@ -94,6 +98,10 @@ export async function saveAcademy(
   const map = readLocalMap<Academy>(ACADEMIES_LOCAL_KEY);
   map[cleanCode] = cleanAcademy;
   writeLocalMap(ACADEMIES_LOCAL_KEY, map);
+
+  if (isBrowserOffline()) {
+    return { syncedToCloud: false };
+  }
 
   try {
     await setDoc(doc(db, 'fittrack_academies', cleanCode), cleanAcademy);
@@ -129,6 +137,10 @@ export async function fetchAcademyByCode(
 ): Promise<Academy | null> {
   const code = normalizeAcademyCode(rawCode);
   if (!code) return null;
+
+  if (isBrowserOffline()) {
+    return getLocalAcademyByCode(code);
+  }
 
   try {
     const snap = await getDoc(doc(db, 'fittrack_academies', code));
@@ -188,6 +200,8 @@ export async function deleteAcademyByCode(rawCode: string): Promise<void> {
     delete map[code];
     writeLocalMap(ACADEMIES_LOCAL_KEY, map);
   }
+
+  if (isBrowserOffline()) return;
 
   try {
     await deleteDoc(doc(db, 'fittrack_academies', code));
@@ -315,6 +329,10 @@ export async function saveStudentProfile(
   map[cleanCpf] = cleanProfile;
   writeLocalMap(USERS_LOCAL_KEY, map);
 
+  if (isBrowserOffline()) {
+    return { syncedToCloud: false };
+  }
+
   try {
     await setDoc(doc(db, 'fittrack_users', cleanCpf), cleanProfile);
     return { syncedToCloud: true };
@@ -329,6 +347,10 @@ export async function fetchStudentProfileByCpf(
 ): Promise<StudentProfile | null> {
   const cpf = normalizeCpf(rawCpf);
   if (cpf.length !== 11) return null;
+
+  if (isBrowserOffline()) {
+    return getLocalStudentProfile(cpf);
+  }
 
   try {
     const snap = await getDoc(doc(db, 'fittrack_users', cpf));
@@ -355,21 +377,23 @@ export async function fetchStudentsByAcademy(
   const localMap = readLocalMap<StudentProfile>(USERS_LOCAL_KEY);
   const merged: Record<string, StudentProfile> = { ...localMap };
 
-  try {
-    const q = query(
-      collection(db, 'fittrack_users'),
-      where('academyCode', '==', cleanCode)
-    );
-    const snap = await getDocs(q);
-    snap.forEach((docSnap) => {
-      const data = docSnap.data() as StudentProfile;
-      if (data && data.cpf) {
-        merged[data.cpf] = data;
-      }
-    });
-    writeLocalMap(USERS_LOCAL_KEY, merged);
-  } catch (error) {
-    logFirestoreError(error, OperationType.LIST, 'fittrack_users');
+  if (!isBrowserOffline()) {
+    try {
+      const q = query(
+        collection(db, 'fittrack_users'),
+        where('academyCode', '==', cleanCode)
+      );
+      const snap = await getDocs(q);
+      snap.forEach((docSnap) => {
+        const data = docSnap.data() as StudentProfile;
+        if (data && data.cpf) {
+          merged[data.cpf] = data;
+        }
+      });
+      writeLocalMap(USERS_LOCAL_KEY, merged);
+    } catch (error) {
+      logFirestoreError(error, OperationType.LIST, 'fittrack_users');
+    }
   }
 
   return Object.values(merged)
@@ -400,6 +424,10 @@ export async function saveStudentWorkout(
   const map = readLocalMap<StudentWorkoutRecord>(WORKOUTS_LOCAL_KEY);
   map[cleanCpf] = cleanRecord;
   writeLocalMap(WORKOUTS_LOCAL_KEY, map);
+
+  if (isBrowserOffline()) {
+    return { syncedToCloud: false };
+  }
 
   try {
     await setDoc(doc(db, 'fittrack_student_workouts', cleanCpf), cleanRecord);
@@ -434,6 +462,8 @@ export async function updateStudentWorkoutExercises(
   map[cpf] = updated;
   writeLocalMap(WORKOUTS_LOCAL_KEY, map);
 
+  if (isBrowserOffline()) return;
+
   try {
     await setDoc(doc(db, 'fittrack_student_workouts', cpf), updated);
   } catch (error) {
@@ -450,6 +480,10 @@ export async function fetchStudentWorkoutByCpf(
 ): Promise<StudentWorkoutRecord | null> {
   const cpf = normalizeCpf(rawCpf);
   if (cpf.length !== 11) return null;
+
+  if (isBrowserOffline()) {
+    return getLocalStudentWorkout(cpf);
+  }
 
   try {
     const snap = await getDoc(doc(db, 'fittrack_student_workouts', cpf));
@@ -498,27 +532,59 @@ export function subscribeStudentWorkout(
 
   onUpdate(getLocalStudentWorkout(cpf));
 
-  const docRef = doc(db, 'fittrack_student_workouts', cpf);
-  return onSnapshot(
-    docRef,
-    (snap) => {
-      if (snap.exists()) {
-        const data = snap.data() as StudentWorkoutRecord;
-        const map = readLocalMap<StudentWorkoutRecord>(WORKOUTS_LOCAL_KEY);
-        map[cpf] = data;
-        writeLocalMap(WORKOUTS_LOCAL_KEY, map);
-        onUpdate(data);
+  let activeSnapshotUnsub: Unsubscribe | null = null;
+  let disposed = false;
+
+  const attachSnapshot = () => {
+    if (disposed || activeSnapshotUnsub || isBrowserOffline()) return;
+    const docRef = doc(db, 'fittrack_student_workouts', cpf);
+    activeSnapshotUnsub = onSnapshot(
+      docRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as StudentWorkoutRecord;
+          const map = readLocalMap<StudentWorkoutRecord>(WORKOUTS_LOCAL_KEY);
+          map[cpf] = data;
+          writeLocalMap(WORKOUTS_LOCAL_KEY, map);
+          onUpdate(data);
+        }
+      },
+      (error) => {
+        logFirestoreError(
+          error,
+          OperationType.GET,
+          `fittrack_student_workouts/${cpf}`
+        );
+        onUpdate(getLocalStudentWorkout(cpf));
       }
-    },
-    (error) => {
-      logFirestoreError(
-        error,
-        OperationType.GET,
-        `fittrack_student_workouts/${cpf}`
-      );
-      onUpdate(getLocalStudentWorkout(cpf));
+    );
+  };
+
+  const detachSnapshot = () => {
+    if (activeSnapshotUnsub) {
+      activeSnapshotUnsub();
+      activeSnapshotUnsub = null;
     }
-  );
+  };
+
+  attachSnapshot();
+
+  const handleOnline = () => attachSnapshot();
+  const handleOffline = () => detachSnapshot();
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+  }
+
+  return () => {
+    disposed = true;
+    detachSnapshot();
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    }
+  };
 }
 
 /* ==================== fittrack_assessments ==================== */
@@ -554,6 +620,10 @@ export async function saveAssessmentRecord(
   const current = loadLocalAssessments().filter((a) => a.id !== clean.id);
   saveLocalAssessments([clean, ...current]);
 
+  if (isBrowserOffline()) {
+    return { syncedToCloud: false };
+  }
+
   try {
     await setDoc(doc(db, 'fittrack_assessments', clean.id), clean);
     return { syncedToCloud: true };
@@ -575,26 +645,28 @@ export async function fetchAssessmentsByAcademy(
   const byId = new Map<string, PhysicalAssessment>();
   allLocal.forEach((a) => byId.set(a.id, a));
 
-  try {
-    const q = cleanCode
-      ? query(
-          collection(db, 'fittrack_assessments'),
-          where('academyCode', '==', cleanCode)
-        )
-      : collection(db, 'fittrack_assessments');
-    const snap = await getDocs(q);
-    snap.forEach((d) => {
-      const data = d.data() as PhysicalAssessment;
-      if (data && data.id) {
-        byId.set(data.id, data);
-      }
-    });
-    const mergedAll = Array.from(byId.values()).sort((a, b) =>
-      b.date.localeCompare(a.date)
-    );
-    saveLocalAssessments(mergedAll);
-  } catch (error) {
-    logFirestoreError(error, OperationType.LIST, 'fittrack_assessments');
+  if (!isBrowserOffline()) {
+    try {
+      const q = cleanCode
+        ? query(
+            collection(db, 'fittrack_assessments'),
+            where('academyCode', '==', cleanCode)
+          )
+        : collection(db, 'fittrack_assessments');
+      const snap = await getDocs(q);
+      snap.forEach((d) => {
+        const data = d.data() as PhysicalAssessment;
+        if (data && data.id) {
+          byId.set(data.id, data);
+        }
+      });
+      const mergedAll = Array.from(byId.values()).sort((a, b) =>
+        b.date.localeCompare(a.date)
+      );
+      saveLocalAssessments(mergedAll);
+    } catch (error) {
+      logFirestoreError(error, OperationType.LIST, 'fittrack_assessments');
+    }
   }
 
   return loadLocalAssessments(cleanCode);
@@ -618,24 +690,26 @@ export async function fetchAssessmentsByStudentCpf(
   const byId = new Map<string, PhysicalAssessment>();
   allLocal.forEach((a) => byId.set(a.id, a));
 
-  try {
-    const q = query(
-      collection(db, 'fittrack_assessments'),
-      where('studentCpf', '==', cleanCpf)
-    );
-    const snap = await getDocs(q);
-    snap.forEach((d) => {
-      const data = d.data() as PhysicalAssessment;
-      if (data && data.id) {
-        byId.set(data.id, data);
-      }
-    });
-    const mergedAll = Array.from(byId.values()).sort((a, b) =>
-      b.date.localeCompare(a.date)
-    );
-    saveLocalAssessments(mergedAll);
-  } catch (error) {
-    logFirestoreError(error, OperationType.LIST, 'fittrack_assessments');
+  if (!isBrowserOffline()) {
+    try {
+      const q = query(
+        collection(db, 'fittrack_assessments'),
+        where('studentCpf', '==', cleanCpf)
+      );
+      const snap = await getDocs(q);
+      snap.forEach((d) => {
+        const data = d.data() as PhysicalAssessment;
+        if (data && data.id) {
+          byId.set(data.id, data);
+        }
+      });
+      const mergedAll = Array.from(byId.values()).sort((a, b) =>
+        b.date.localeCompare(a.date)
+      );
+      saveLocalAssessments(mergedAll);
+    } catch (error) {
+      logFirestoreError(error, OperationType.LIST, 'fittrack_assessments');
+    }
   }
 
   return loadLocalAssessmentsByCpf(cleanCpf);
@@ -644,6 +718,7 @@ export async function fetchAssessmentsByStudentCpf(
 export async function deleteAssessmentRecord(id: string): Promise<void> {
   const next = loadLocalAssessments().filter((a) => a.id !== id);
   saveLocalAssessments(next);
+  if (isBrowserOffline()) return;
   try {
     await deleteDoc(doc(db, 'fittrack_assessments', id));
   } catch (error) {
