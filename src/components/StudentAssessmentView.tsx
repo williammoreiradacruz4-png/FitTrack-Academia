@@ -5,11 +5,15 @@ import {
   CalendarClock,
   CheckCircle2,
   ClipboardList,
+  Droplets,
+  Flame,
+  HeartPulse,
   RefreshCw,
 } from 'lucide-react';
 import {
   PhysicalAssessment,
   calculateBMI,
+  calculateNutritionAndSupplements,
   calculateWHR,
   formatDateBr,
   getReassessmentStatus,
@@ -34,6 +38,16 @@ const DEVIATION_LABELS: Array<{
   { key: 'scoliosis', label: 'Escoliose' },
   { key: 'roundedShoulders', label: 'Ombros protusos' },
   { key: 'kneeValgusVarus', label: 'Joelhos valgos/varos' },
+];
+
+const PARQ_LABELS: Array<{
+  key: keyof NonNullable<PhysicalAssessment['parq']>;
+  label: string;
+}> = [
+  { key: 'chestPain', label: 'Dores no peito ao esforço' },
+  { key: 'dizziness', label: 'Tonturas ou perda de equilíbrio' },
+  { key: 'boneOrJointProblems', label: 'Problemas ósseos/articulares' },
+  { key: 'bloodPressureOrHeartMeds', label: 'Uso de medicação cardíaca/pressão' },
 ];
 
 export function StudentAssessmentView({
@@ -75,7 +89,7 @@ export function StudentAssessmentView({
             Nenhuma avaliação física registrada
           </h2>
           <p className="text-sm text-zinc-400 max-w-md mx-auto">
-            Assim que seu professor realizar e salvar sua avaliação física presencial, seus resultados, composição corporal e gráficos comparativos aparecerão aqui.
+            Assim que seu professor realizar e salvar sua avaliação física presencial, toda a sua ficha, cálculos nutricionais, composição corporal e gráficos comparativos aparecerão aqui.
           </p>
           <button
             type="button"
@@ -105,9 +119,25 @@ export function StudentAssessmentView({
       : null;
   const validity = getReassessmentStatus(latest.nextReassessmentDate);
 
+  const fallbackNutri = calculateNutritionAndSupplements(latest.weightKg);
+  const nutrition = fallbackNutri
+    ? {
+        proteinG: latest.proteinG ?? fallbackNutri.proteinG,
+        waterMl: latest.waterMl ?? fallbackNutri.waterMl,
+        caloriesKcal: latest.caloriesKcal ?? fallbackNutri.caloriesKcal,
+        creatineG: latest.creatineG ?? fallbackNutri.creatineG,
+        caffeineMg: latest.caffeineMg ?? fallbackNutri.caffeineMg,
+        omegaMg: latest.omegaMg ?? fallbackNutri.omegaMg,
+      }
+    : null;
+
   const activeDeviations = DEVIATION_LABELS.filter(
     (d) => latest.postureDeviations?.[d.key]
   ).map((d) => d.label);
+
+  const positiveParq = PARQ_LABELS.filter(
+    (p) => latest.parq?.[p.key]
+  ).map((p) => p.label);
 
   const symmetryRows = [
     {
@@ -149,6 +179,35 @@ export function StudentAssessmentView({
     latest.hipCm ? { label: 'Quadril', value: `${latest.hipCm} cm` } : null,
   ].filter(Boolean) as Array<{ label: string; value: string }>;
 
+  const skinfoldItems = [
+    latest.skinfoldPectoralMm ? { label: 'Peitoral', value: `${latest.skinfoldPectoralMm} mm` } : null,
+    latest.skinfoldAbdominalMm ? { label: 'Abdominal', value: `${latest.skinfoldAbdominalMm} mm` } : null,
+    latest.skinfoldThighMm ? { label: 'Coxa', value: `${latest.skinfoldThighMm} mm` } : null,
+    latest.skinfoldTricepsMm ? { label: 'Tríceps', value: `${latest.skinfoldTricepsMm} mm` } : null,
+    latest.skinfoldSuprailiacMm ? { label: 'Supra-ilíaca', value: `${latest.skinfoldSuprailiacMm} mm` } : null,
+    latest.skinfoldSubscapularMm ? { label: 'Subescapular', value: `${latest.skinfoldSubscapularMm} mm` } : null,
+    latest.skinfoldMidaxillaryMm ? { label: 'Axilar média', value: `${latest.skinfoldMidaxillaryMm} mm` } : null,
+  ].filter(Boolean) as Array<{ label: string; value: string }>;
+
+  const physicalTestItems = [
+    latest.wellsBenchCm !== undefined ? { label: 'Banco de Wells', value: `${latest.wellsBenchCm} cm` } : null,
+    latest.pushups1Min !== undefined ? { label: 'Flexões (1 min)', value: `${latest.pushups1Min} rep` } : null,
+    latest.situps1Min !== undefined ? { label: 'Abdominais (1 min)', value: `${latest.situps1Min} rep` } : null,
+    latest.vo2Max !== undefined ? { label: 'VO2 máximo', value: `${latest.vo2Max}` } : null,
+  ].filter(Boolean) as Array<{ label: string; value: string }>;
+
+  const hasVitals = Boolean(
+    (latest.systolicBp && latest.diastolicBp) || latest.restingHr
+  );
+
+  const hasAnamnesisBlock = Boolean(
+    latest.sleepHours !== undefined ||
+      latest.weeklyFrequency !== undefined ||
+      latest.clinicalHistory ||
+      positiveParq.length > 0 ||
+      latest.parq
+  );
+
   const hasPhotos = Boolean(
     latest.posturePhotos?.front ||
       latest.posturePhotos?.back ||
@@ -162,13 +221,15 @@ export function StudentAssessmentView({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-semibold text-orange-400">
-              Minha Avaliação Física
+              Minha Ficha de Avaliação Física
             </p>
             <h2 className="font-display text-2xl font-bold text-zinc-50 mt-0.5">
               {studentName}
             </h2>
             <p className="text-xs font-mono tabular-nums text-zinc-400 mt-0.5">
               Última avaliação em {formatDateBr(latest.date)}
+              {latest.studentAge !== undefined ? ` · ${latest.studentAge} anos` : ''}
+              {latest.biologicalSex ? ` · ${latest.biologicalSex}` : ''}
               {latest.goal ? ` · Objetivo: ${latest.goal}` : ''}
               {latest.activityLevel ? ` · Nível: ${latest.activityLevel}` : ''}
             </p>
@@ -261,6 +322,24 @@ export function StudentAssessmentView({
           </div>
         </div>
 
+        {/* Dedicated Vital Signs row when present */}
+        {hasVitals && (
+          <div className="bg-[#0b0c0e] border border-zinc-800 rounded-xl px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-mono tabular-nums text-zinc-300">
+            <span className="font-sans font-semibold text-orange-400 flex items-center gap-1.5">
+              <HeartPulse className="w-4 h-4" aria-hidden="true" />
+              Sinais Vitais:
+            </span>
+            {latest.systolicBp && latest.diastolicBp && (
+              <span>
+                Pressão Arterial {latest.systolicBp}/{latest.diastolicBp} mmHg
+              </span>
+            )}
+            {latest.restingHr && (
+              <span>FC Repouso {latest.restingHr} bpm</span>
+            )}
+          </div>
+        )}
+
         {/* Bioimpedance Extras if applicable */}
         {latest.compositionMethod === 'bioimpedancia' &&
           (latest.skeletalMuscleMassKg !== undefined ||
@@ -285,10 +364,149 @@ export function StudentAssessmentView({
               )}
             </div>
           )}
+
+        {/* Skinfold measurements if present */}
+        {skinfoldItems.length > 0 && (
+          <div className="bg-[#0b0c0e] border border-zinc-800 rounded-xl px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-mono tabular-nums text-zinc-300">
+            <span className="font-sans font-semibold text-orange-400">
+              Dobras Cutâneas ({latest.compositionMethod === 'pollock7' ? 'Pollock 7' : 'Pollock 3'}):
+            </span>
+            {skinfoldItems.map((s) => (
+              <span key={s.label}>
+                {s.label} {s.value}
+              </span>
+            ))}
+          </div>
+        )}
       </section>
+
+      {/* Nutrição & Suplementação Automática pelo Peso */}
+      {nutrition && (
+        <section className="bg-[#14161a] border border-zinc-800 rounded-2xl p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Flame className="w-5 h-5 text-orange-400 shrink-0" aria-hidden="true" />
+              <h3 className="font-display text-xl font-bold text-zinc-50">
+                Meta Nutricional & Suplementação Diária
+              </h3>
+            </div>
+            <span className="text-xs font-mono tabular-nums text-zinc-400">
+              Calculado pelo peso ({latest.weightKg} kg)
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="bg-[#0b0c0e] border border-zinc-800 rounded-xl p-3.5">
+              <p className="text-[11px] text-zinc-400">Proteína Diária</p>
+              <p className="text-lg font-mono tabular-nums font-bold text-zinc-100 mt-1">
+                {nutrition.proteinG} g
+              </p>
+              <p className="text-[11px] text-zinc-500 mt-0.5 font-mono">
+                Peso × 2
+              </p>
+            </div>
+
+            <div className="bg-[#0b0c0e] border border-zinc-800 rounded-xl p-3.5">
+              <div className="flex items-center justify-between gap-1">
+                <p className="text-[11px] text-zinc-400">Água Diária</p>
+                <Droplets className="w-3.5 h-3.5 text-sky-400 shrink-0" aria-hidden="true" />
+              </div>
+              <p className="text-lg font-mono tabular-nums font-bold text-sky-400 mt-1">
+                {nutrition.waterMl} ml
+              </p>
+              <p className="text-[11px] text-zinc-500 mt-0.5 font-mono">
+                {(nutrition.waterMl / 1000).toFixed(2)} L · Peso × 35
+              </p>
+            </div>
+
+            <div className="bg-[#0b0c0e] border border-zinc-800 rounded-xl p-3.5">
+              <p className="text-[11px] text-zinc-400">Calorias Diárias</p>
+              <p className="text-lg font-mono tabular-nums font-bold text-orange-400 mt-1">
+                {nutrition.caloriesKcal} kcal
+              </p>
+              <p className="text-[11px] text-zinc-500 mt-0.5 font-mono">
+                Peso × 25
+              </p>
+            </div>
+
+            <div className="bg-[#0b0c0e] border border-zinc-800 rounded-xl p-3.5">
+              <p className="text-[11px] text-zinc-400">Creatina</p>
+              <p className="text-lg font-mono tabular-nums font-bold text-zinc-100 mt-1">
+                {nutrition.creatineG} g
+              </p>
+              <p className="text-[11px] text-zinc-500 mt-0.5 font-mono">
+                Peso × 0,03
+              </p>
+            </div>
+
+            <div className="bg-[#0b0c0e] border border-zinc-800 rounded-xl p-3.5">
+              <p className="text-[11px] text-zinc-400">Cafeína</p>
+              <p className="text-lg font-mono tabular-nums font-bold text-zinc-100 mt-1">
+                {nutrition.caffeineMg} mg
+              </p>
+              <p className="text-[11px] text-zinc-500 mt-0.5 font-mono">
+                Peso × 3
+              </p>
+            </div>
+
+            <div className="bg-[#0b0c0e] border border-zinc-800 rounded-xl p-3.5">
+              <p className="text-[11px] text-zinc-400">Ômega</p>
+              <p className="text-lg font-mono tabular-nums font-bold text-zinc-100 mt-1">
+                {nutrition.omegaMg} mg
+              </p>
+              <p className="text-[11px] text-zinc-500 mt-0.5 font-mono">
+                Peso × 25
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Comparative Evolution Charts */}
       <AssessmentEvolutionSection assessments={assessments} accent="orange" />
+
+      {/* Bloco A — Anamnese, Hábitos & PAR-Q */}
+      {hasAnamnesisBlock && (
+        <section className="bg-[#14161a] border border-zinc-800 rounded-2xl p-5 space-y-3">
+          <h3 className="font-display text-xl font-bold text-zinc-50">
+            Anamnese & Rotina
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+            {latest.sleepHours !== undefined && (
+              <div className="bg-[#0b0c0e] border border-zinc-800 rounded-xl px-3.5 py-2.5">
+                <span className="text-zinc-400">Sono por noite: </span>
+                <span className="font-mono font-semibold text-zinc-100">
+                  {latest.sleepHours} h
+                </span>
+              </div>
+            )}
+            {latest.weeklyFrequency !== undefined && (
+              <div className="bg-[#0b0c0e] border border-zinc-800 rounded-xl px-3.5 py-2.5">
+                <span className="text-zinc-400">Frequência semanal: </span>
+                <span className="font-mono font-semibold text-zinc-100">
+                  {latest.weeklyFrequency}x / semana
+                </span>
+              </div>
+            )}
+          </div>
+          {latest.parq && (
+            <div className="bg-[#0b0c0e] border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs">
+              <span className="font-semibold text-zinc-200">Triagem PAR-Q: </span>
+              <span className={positiveParq.length > 0 ? 'text-amber-300' : 'text-zinc-400'}>
+                {positiveParq.length > 0
+                  ? positiveParq.join(' · ')
+                  : 'Sem apontamentos positivos'}
+              </span>
+            </div>
+          )}
+          {latest.clinicalHistory && (
+            <p className="text-xs text-zinc-300 leading-relaxed whitespace-pre-line">
+              <strong className="text-zinc-100">Histórico clínico / restrições:</strong>{' '}
+              {latest.clinicalHistory}
+            </p>
+          )}
+        </section>
+      )}
 
       {/* Perimetria & Simetria D/E */}
       {(trunkItems.length > 0 || symmetryRows.length > 0) && (
@@ -350,6 +568,28 @@ export function StudentAssessmentView({
         </section>
       )}
 
+      {/* Testes Físicos (Bloco E) */}
+      {physicalTestItems.length > 0 && (
+        <section className="bg-[#14161a] border border-zinc-800 rounded-2xl p-5 space-y-3">
+          <h3 className="font-display text-xl font-bold text-zinc-50">
+            Testes Físicos
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {physicalTestItems.map((test) => (
+              <div
+                key={test.label}
+                className="bg-[#0b0c0e] border border-zinc-800 rounded-xl px-3.5 py-2.5"
+              >
+                <p className="text-[11px] text-zinc-400">{test.label}</p>
+                <p className="text-sm font-mono tabular-nums font-bold text-zinc-100 mt-0.5">
+                  {test.value}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Posture Photos, Deviations & Notes */}
       {(hasPhotos || activeDeviations.length > 0 || latest.posturalNotes || latest.notes) && (
         <section className="bg-[#14161a] border border-zinc-800 rounded-2xl p-5 space-y-4">
@@ -407,3 +647,4 @@ export function StudentAssessmentView({
     </main>
   );
 }
+

@@ -31,6 +31,7 @@ import {
   StudentProfile,
   addDaysToDateKey,
   calculateBMI,
+  calculateNutritionAndSupplements,
   calculatePollock3BodyFat,
   calculatePollock7BodyFat,
   calculateWHR,
@@ -358,6 +359,11 @@ export function PhysicalAssessmentView({
     [weightKg, heightCm]
   );
 
+  const liveNutrition = useMemo(
+    () => calculateNutritionAndSupplements(parseFloat(weightKg)),
+    [weightKg]
+  );
+
   const liveWhr = useMemo(
     () => calculateWHR(parseFloat(waistCm), parseFloat(hipCm), biologicalSex),
     [waistCm, hipCm, biologicalSex]
@@ -632,6 +638,14 @@ export function PhysicalAssessmentView({
       pushups1Min: parseOptAllowZero(pushups1Min),
       situps1Min: parseOptAllowZero(situps1Min),
       vo2Max: parseOpt(vo2Max),
+
+      // Nutrição & Suplementação automáticas pelo peso
+      proteinG: liveNutrition?.proteinG,
+      waterMl: liveNutrition?.waterMl,
+      caloriesKcal: liveNutrition?.caloriesKcal,
+      creatineG: liveNutrition?.creatineG,
+      caffeineMg: liveNutrition?.caffeineMg,
+      omegaMg: liveNutrition?.omegaMg,
 
       notes: notes.trim() || undefined,
     };
@@ -1230,6 +1244,69 @@ export function PhysicalAssessmentView({
                     <span className="font-mono tabular-nums font-semibold text-purple-300">
                       {liveBmi.value} · {liveBmi.label}
                     </span>
+                  </div>
+                )}
+
+                {liveNutrition && (
+                  <div className="bg-[#14161a] border border-purple-500/35 rounded-xl p-3 space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-semibold text-purple-300">
+                        Cálculo Automático pelo Peso
+                      </span>
+                      <span className="font-mono text-zinc-400">
+                        {weightKg} kg
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                      <div className="bg-[#0b0c0e] border border-zinc-800 rounded-lg px-2.5 py-2">
+                        <span className="block text-[10px] text-zinc-400">
+                          Proteína (×2)
+                        </span>
+                        <span className="font-mono tabular-nums font-bold text-zinc-100">
+                          {liveNutrition.proteinG} g
+                        </span>
+                      </div>
+                      <div className="bg-[#0b0c0e] border border-zinc-800 rounded-lg px-2.5 py-2">
+                        <span className="block text-[10px] text-zinc-400">
+                          Água (×35)
+                        </span>
+                        <span className="font-mono tabular-nums font-bold text-sky-400">
+                          {liveNutrition.waterMl} ml
+                        </span>
+                      </div>
+                      <div className="bg-[#0b0c0e] border border-zinc-800 rounded-lg px-2.5 py-2">
+                        <span className="block text-[10px] text-zinc-400">
+                          Calorias (×25)
+                        </span>
+                        <span className="font-mono tabular-nums font-bold text-orange-400">
+                          {liveNutrition.caloriesKcal} kcal
+                        </span>
+                      </div>
+                      <div className="bg-[#0b0c0e] border border-zinc-800 rounded-lg px-2.5 py-2">
+                        <span className="block text-[10px] text-zinc-400">
+                          Creatina (×0,03)
+                        </span>
+                        <span className="font-mono tabular-nums font-bold text-zinc-100">
+                          {liveNutrition.creatineG} g
+                        </span>
+                      </div>
+                      <div className="bg-[#0b0c0e] border border-zinc-800 rounded-lg px-2.5 py-2">
+                        <span className="block text-[10px] text-zinc-400">
+                          Cafeína (×3)
+                        </span>
+                        <span className="font-mono tabular-nums font-bold text-zinc-100">
+                          {liveNutrition.caffeineMg} mg
+                        </span>
+                      </div>
+                      <div className="bg-[#0b0c0e] border border-zinc-800 rounded-lg px-2.5 py-2">
+                        <span className="block text-[10px] text-zinc-400">
+                          Ômega (×25)
+                        </span>
+                        <span className="font-mono tabular-nums font-bold text-zinc-100">
+                          {liveNutrition.omegaMg} mg
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -2278,6 +2355,18 @@ export function PhysicalAssessmentView({
                 item.vo2Max !== undefined ? `VO2 ${item.vo2Max}` : null,
               ].filter(Boolean);
 
+              const fallbackNutri = calculateNutritionAndSupplements(item.weightKg);
+              const nutrition = fallbackNutri
+                ? {
+                    proteinG: item.proteinG ?? fallbackNutri.proteinG,
+                    waterMl: item.waterMl ?? fallbackNutri.waterMl,
+                    caloriesKcal: item.caloriesKcal ?? fallbackNutri.caloriesKcal,
+                    creatineG: item.creatineG ?? fallbackNutri.creatineG,
+                    caffeineMg: item.caffeineMg ?? fallbackNutri.caffeineMg,
+                    omegaMg: item.omegaMg ?? fallbackNutri.omegaMg,
+                  }
+                : null;
+
               return (
                 <article
                   key={item.id}
@@ -2352,6 +2441,35 @@ export function PhysicalAssessmentView({
                       </>
                     )}
                   </div>
+
+                  {nutrition && (
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-[11px] font-mono tabular-nums">
+                      <div className="bg-[#0b0c0e] border border-zinc-800/80 rounded-lg px-2 py-1.5">
+                        <span className="block font-sans text-[10px] text-zinc-400">Proteína</span>
+                        <span className="font-semibold text-zinc-100">{nutrition.proteinG}g</span>
+                      </div>
+                      <div className="bg-[#0b0c0e] border border-zinc-800/80 rounded-lg px-2 py-1.5">
+                        <span className="block font-sans text-[10px] text-zinc-400">Água</span>
+                        <span className="font-semibold text-sky-400">{nutrition.waterMl}ml</span>
+                      </div>
+                      <div className="bg-[#0b0c0e] border border-zinc-800/80 rounded-lg px-2 py-1.5">
+                        <span className="block font-sans text-[10px] text-zinc-400">Calorias</span>
+                        <span className="font-semibold text-orange-400">{nutrition.caloriesKcal}</span>
+                      </div>
+                      <div className="bg-[#0b0c0e] border border-zinc-800/80 rounded-lg px-2 py-1.5">
+                        <span className="block font-sans text-[10px] text-zinc-400">Creatina</span>
+                        <span className="font-semibold text-zinc-100">{nutrition.creatineG}g</span>
+                      </div>
+                      <div className="bg-[#0b0c0e] border border-zinc-800/80 rounded-lg px-2 py-1.5">
+                        <span className="block font-sans text-[10px] text-zinc-400">Cafeína</span>
+                        <span className="font-semibold text-zinc-100">{nutrition.caffeineMg}mg</span>
+                      </div>
+                      <div className="bg-[#0b0c0e] border border-zinc-800/80 rounded-lg px-2 py-1.5">
+                        <span className="block font-sans text-[10px] text-zinc-400">Ômega</span>
+                        <span className="font-semibold text-zinc-100">{nutrition.omegaMg}mg</span>
+                      </div>
+                    </div>
+                  )}
 
                   {trunkMeasures.length > 0 && (
                     <p className="text-xs font-mono tabular-nums text-zinc-400">

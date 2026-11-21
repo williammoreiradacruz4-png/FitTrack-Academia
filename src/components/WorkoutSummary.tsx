@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Bell, Dumbbell, Play, Pause, RotateCcw, Timer } from 'lucide-react';
-import { Exercise, FilterOption, MUSCLE_GROUPS, ReminderSettings } from '../types/workout';
+import { Exercise, FilterOption, MUSCLE_GROUPS, ReminderSettings, UNASSIGNED_MUSCLE } from '../types/workout';
 import { PWAInstallButton } from './PWAInstallButton';
 import { WaterTrackerCard } from './WaterTrackerCard';
 
@@ -105,6 +105,10 @@ export function WorkoutSummary({
   const radius = 26;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (progressPercent / 100) * circumference;
+
+  const unassignedTotal = isProfessor
+    ? exercises.filter((ex) => ex.muscle === UNASSIGNED_MUSCLE).length
+    : 0;
 
   const groupStats = MUSCLE_GROUPS.map((group) => {
     const items = exercises.filter((ex) => ex.muscle === group);
@@ -279,7 +283,7 @@ export function WorkoutSummary({
       )}
 
       {/* Muscle Breakdown (Desktop sidebar focus) */}
-      {groupStats.length > 0 && (
+      {(groupStats.length > 0 || unassignedTotal > 0) && (
         <section
           aria-label="Divisão por grupo muscular"
           className="hidden lg:block bg-[#14161a] border border-zinc-800 rounded-2xl p-5"
@@ -298,6 +302,26 @@ export function WorkoutSummary({
           </div>
 
           <div className="divide-y divide-zinc-800/80">
+            {unassignedTotal > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSelectFilter(
+                    activeFilter === UNASSIGNED_MUSCLE ? 'Todos' : UNASSIGNED_MUSCLE
+                  )
+                }
+                className={`w-full min-h-[44px] py-2 px-2 -mx-2 rounded-lg flex items-center justify-between text-sm transition-colors cursor-pointer ${
+                  activeFilter === UNASSIGNED_MUSCLE
+                    ? 'bg-amber-500/15 text-amber-300 font-semibold'
+                    : 'text-amber-300 hover:bg-amber-500/10 font-medium'
+                }`}
+              >
+                <span>Sem grupo (organizar)</span>
+                <span className="font-mono tabular-nums text-xs text-amber-300">
+                  {unassignedTotal}
+                </span>
+              </button>
+            )}
             {groupStats.map(({ group, done, total }) => {
               const isSelected = activeFilter === group;
               return (

@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Building2, X } from 'lucide-react';
-import { Academy, StudentProfile, normalizeAcademyCode } from '../types/workout';
+import { Academy, GALLERY_GYM_CODE, StudentProfile, normalizeAcademyCode } from '../types/workout';
 import { fetchAcademyByCode, saveStudentProfile } from '../utils/fittrackStore';
 
 interface LinkAcademyModalProps {
@@ -47,6 +47,10 @@ export function LinkAcademyModal({
     const cleanCode = normalizeAcademyCode(codeInput);
     if (!cleanCode) {
       setErrorMsg('Informe o código da academia ou do personal.');
+      return;
+    }
+    if (cleanCode === GALLERY_GYM_CODE) {
+      setErrorMsg('Este código é reservado à Galeria Global e não aceita vínculo de alunos.');
       return;
     }
 

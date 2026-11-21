@@ -12,7 +12,11 @@ export type MuscleGroup =
   | 'Abdômen'
   | 'Cardio';
 
-export type FilterOption = 'Todos' | MuscleGroup;
+export const UNASSIGNED_MUSCLE = 'Sem grupo' as const;
+
+export type ExerciseMuscle = MuscleGroup | typeof UNASSIGNED_MUSCLE;
+
+export type FilterOption = 'Todos' | ExerciseMuscle;
 
 export type DayOfWeek = 'seg' | 'ter' | 'qua' | 'qui' | 'sex' | 'sab' | 'dom';
 
@@ -43,7 +47,7 @@ export interface WorkoutPlan {
 export interface Exercise {
   id: string;
   name: string;
-  muscle: MuscleGroup;
+  muscle: ExerciseMuscle;
   setsReps: string;
   weight: number;
   durationSeconds?: number;
@@ -172,7 +176,7 @@ export function getTodayDayId(date = new Date()): DayOfWeek {
   return map[date.getDay()];
 }
 
-export function isTimeBasedExercise(muscle: MuscleGroup, name: string): boolean {
+export function isTimeBasedExercise(muscle: ExerciseMuscle, name: string): boolean {
   if (muscle === 'Cardio') return true;
   if (muscle !== 'Abdômen') return false;
   const normalized = name
@@ -285,6 +289,8 @@ export interface StudentWorkoutRecord {
   professorName?: string;
 }
 
+export const GALLERY_GYM_CODE = 'FITTRACK-GALERIA';
+
 export interface UserSession {
   role: UserRole;
   name: string;
@@ -293,6 +299,7 @@ export interface UserSession {
   academyCode?: string;
   academyName?: string;
   academyLogo?: string;
+  isCreator?: boolean;
   loggedInAt: string;
 }
 
@@ -376,6 +383,14 @@ export interface PhysicalAssessment {
   situps1Min?: number;
   vo2Max?: number;
 
+  // Cálculo Nutricional e Suplementação por Peso
+  proteinG?: number;
+  waterMl?: number;
+  caloriesKcal?: number;
+  creatineG?: number;
+  caffeineMg?: number;
+  omegaMg?: number;
+
   notes?: string;
 }
 
@@ -454,6 +469,29 @@ export function calculateBMI(
   else label = 'Obesidade grau III';
 
   return { value: rounded, label };
+}
+
+export interface NutritionSupplementationPlan {
+  proteinG: number;
+  waterMl: number;
+  caloriesKcal: number;
+  creatineG: number;
+  caffeineMg: number;
+  omegaMg: number;
+}
+
+export function calculateNutritionAndSupplements(
+  weightKg: number
+): NutritionSupplementationPlan | null {
+  if (!weightKg || !Number.isFinite(weightKg) || weightKg <= 0) return null;
+  return {
+    proteinG: Math.round(weightKg * 2 * 10) / 10,
+    waterMl: Math.round(weightKg * 35),
+    caloriesKcal: Math.round(weightKg * 25),
+    creatineG: Math.round(weightKg * 0.03 * 100) / 100,
+    caffeineMg: Math.round(weightKg * 3 * 10) / 10,
+    omegaMg: Math.round(weightKg * 25),
+  };
 }
 
 export function calculateWHR(

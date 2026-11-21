@@ -7,8 +7,10 @@ import {
   Plus,
   QrCode,
   RotateCcw,
+  Sparkles,
+  Upload,
 } from 'lucide-react';
-import { UserSession } from '../types/workout';
+import { GALLERY_GYM_CODE, UserSession } from '../types/workout';
 import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
@@ -18,6 +20,7 @@ interface HeaderProps {
   showWorkoutActions: boolean;
   onResetChecks: () => void;
   onOpenNewModal: () => void;
+  onOpenBulkUpload?: () => void;
   onOpenQrModal: () => void;
   onUploadAcademyLogo?: (file: File) => void;
   onAcademyBadgeClick: () => void;
@@ -34,6 +37,7 @@ export function Header({
   showWorkoutActions,
   onResetChecks,
   onOpenNewModal,
+  onOpenBulkUpload,
   onOpenQrModal,
   onUploadAcademyLogo,
   onAcademyBadgeClick,
@@ -42,6 +46,9 @@ export function Header({
   const [copied, setCopied] = useState(false);
   const logoFileRef = useRef<HTMLInputElement>(null);
   const isProfessor = session.role === 'professor';
+  const isCreator = Boolean(
+    isProfessor && (session.isCreator || session.academyCode === GALLERY_GYM_CODE)
+  );
   const progressPercent =
     totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
@@ -63,7 +70,7 @@ export function Header({
     <header className="sticky top-0 z-40 h-[56px] bg-[#14161a]/95 backdrop-blur-md border-b border-zinc-800">
       <div className="max-w-6xl mx-auto h-full px-4 sm:px-6 flex items-center justify-between gap-2 sm:gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
-          {isProfessor && onUploadAcademyLogo ? (
+          {isProfessor && !isCreator && onUploadAcademyLogo ? (
             <button
               type="button"
               onClick={() => logoFileRef.current?.click()}
@@ -86,7 +93,11 @@ export function Header({
           )}
 
           <div className="min-w-0 leading-tight">
-            {isProfessor ? (
+            {isCreator ? (
+              <span className="block font-display text-lg sm:text-xl font-bold tracking-tight text-orange-400 whitespace-nowrap truncate max-w-[160px] sm:max-w-[260px]">
+                Galeria Oficial FitTrack
+              </span>
+            ) : isProfessor ? (
               <span className="block font-display text-lg sm:text-xl font-bold tracking-tight text-purple-300 whitespace-nowrap truncate max-w-[110px] sm:max-w-[210px]">
                 {session.academyName ?? 'Modo Professor'}
               </span>
@@ -100,32 +111,39 @@ export function Header({
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={() => void handleAcademyAction()}
-            title={
-              isProfessor
-                ? 'Copiar código de convite da academia'
-                : 'Alterar academia ou personal vinculado'
-            }
-            className="hidden md:inline-flex min-h-[36px] px-2.5 py-1 rounded-lg bg-[#0b0c0e] border border-purple-500/35 hover:border-purple-400 text-[11px] font-medium text-purple-300 items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
-          >
-            {copied ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-orange-400" aria-hidden="true" />
-                <span className="text-orange-300">Código copiado</span>
-              </>
-            ) : (
-              <>
-                <Building2 className="w-3.5 h-3.5" aria-hidden="true" />
-                <span className="max-w-[130px] truncate">
-                  {isProfessor
-                    ? `Cód: ${session.academyCode ?? ''}`
-                    : (session.academyName ?? session.academyCode ?? 'Vincular academia')}
-                </span>
-              </>
-            )}
-          </button>
+          {isCreator ? (
+            <span className="hidden md:inline-flex min-h-[36px] px-2.5 py-1 rounded-lg bg-orange-500/10 border border-orange-500/35 text-[11px] font-semibold text-orange-300 items-center gap-1.5 whitespace-nowrap shrink-0">
+              <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Modo Criador</span>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void handleAcademyAction()}
+              title={
+                isProfessor
+                  ? 'Copiar código de convite da academia'
+                  : 'Alterar academia ou personal vinculado'
+              }
+              className="hidden md:inline-flex min-h-[36px] px-2.5 py-1 rounded-lg bg-[#0b0c0e] border border-purple-500/35 hover:border-purple-400 text-[11px] font-medium text-purple-300 items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+            >
+              {copied ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-orange-400" aria-hidden="true" />
+                  <span className="text-orange-300">Código copiado</span>
+                </>
+              ) : (
+                <>
+                  <Building2 className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span className="max-w-[130px] truncate">
+                    {isProfessor
+                      ? `Cód: ${session.academyCode ?? ''}`
+                      : (session.academyName ?? session.academyCode ?? 'Vincular academia')}
+                  </span>
+                </>
+              )}
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -135,7 +153,7 @@ export function Header({
             </span>
           )}
 
-          {isProfessor && onUploadAcademyLogo && (
+          {isProfessor && !isCreator && onUploadAcademyLogo && (
             <>
               <input
                 ref={logoFileRef}
@@ -160,7 +178,7 @@ export function Header({
             </>
           )}
 
-          {isProfessor && (
+          {isProfessor && !isCreator && (
             <button
               type="button"
               onClick={onOpenQrModal}
@@ -184,6 +202,18 @@ export function Header({
             >
               <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
               <span className="hidden sm:inline">Zerar Treino</span>
+            </button>
+          )}
+
+          {isCreator && onOpenBulkUpload && (
+            <button
+              type="button"
+              onClick={onOpenBulkUpload}
+              className="min-h-[44px] px-3 py-2 rounded-lg bg-orange-500/15 border border-orange-500/45 hover:bg-orange-500 hover:text-zinc-950 text-xs font-bold text-orange-300 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Upload className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span className="hidden sm:inline">Upload Imagens</span>
+              <span className="sm:hidden">Upload</span>
             </button>
           )}
 

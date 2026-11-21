@@ -3,6 +3,9 @@ import { Camera, Check, Dumbbell, Minus, Pencil, Plus, Trash2 } from 'lucide-rea
 import {
   DAYS_META,
   Exercise,
+  ExerciseMuscle,
+  MUSCLE_GROUPS,
+  UNASSIGNED_MUSCLE,
   formatCardioMinutes,
   isTimeBasedExercise,
 } from '../types/workout';
@@ -15,7 +18,9 @@ interface ExerciseCardProps {
   onToggleComplete: (id: string) => void;
   onUpdateWeight: (id: string, weight: number) => void;
   onUpdateDuration: (id: string, durationSeconds: number) => void;
+  onUpdateMuscle?: (id: string, muscle: ExerciseMuscle) => void;
   onTriggerImageUpload: (id: string) => void;
+  onUploadImageFile?: (id: string, file: File) => void;
   onEdit: (exercise: Exercise) => void;
   onDelete: (id: string) => void;
 }
@@ -28,7 +33,9 @@ export function ExerciseCard({
   onToggleComplete,
   onUpdateWeight,
   onUpdateDuration,
+  onUpdateMuscle,
   onTriggerImageUpload,
+  onUploadImageFile,
   onEdit,
   onDelete,
 }: ExerciseCardProps) {
@@ -78,45 +85,93 @@ export function ExerciseCard({
           : 'bg-[#14161a] border-zinc-800 hover:border-zinc-700'
       }`}
     >
-      {/* Lateral Image Card (Interactive upload for Professor, view-only for Student) */}
+      {/* Lateral Image Card (Interactive native label upload for Professor, view-only for Student) */}
       {isProfessor ? (
-        <button
-          type="button"
-          onClick={() => onTriggerImageUpload(exercise.id)}
-          aria-label={
-            hasValidImage
-              ? `Alterar foto de ${exercise.name}`
-              : `Adicionar foto de ${exercise.name}`
-          }
-          className={`relative w-20 h-20 min-w-[80px] rounded-xl overflow-hidden flex flex-col items-center justify-center text-center transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 ${
-            hasValidImage
-              ? 'border border-zinc-700 bg-[#0b0c0e]'
-              : 'border border-dashed border-zinc-600 bg-[#0b0c0e] hover:border-orange-500/60'
-          }`}
-        >
-          {hasValidImage ? (
-            <>
-              <img
-                key={exercise.imageUrl}
-                src={exercise.imageUrl}
-                alt={exercise.name}
-                referrerPolicy={exercise.imageUrl?.startsWith('data:') ? undefined : 'no-referrer'}
-                onError={() => setImgError(true)}
-                className={`w-full h-full object-cover transition-opacity duration-150 ${
-                  exercise.completed ? 'opacity-60' : 'opacity-100'
-                }`}
-              />
-              <span className="absolute inset-x-0 bottom-0 py-1 bg-zinc-950/85 text-[11px] font-medium text-zinc-200 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
-                Alterar
+        onUploadImageFile ? (
+          <label
+            aria-label={
+              hasValidImage
+                ? `Alterar foto de ${exercise.name}`
+                : `Fazer upload de foto para ${exercise.name}`
+            }
+            className={`relative w-20 h-20 min-w-[80px] rounded-xl overflow-hidden flex flex-col items-center justify-center text-center transition-colors cursor-pointer group focus-within:ring-2 focus-within:ring-orange-400 ${
+              hasValidImage
+                ? 'border border-zinc-700 bg-[#0b0c0e]'
+                : 'border border-dashed border-zinc-600 bg-[#0b0c0e] hover:border-orange-500/60'
+            }`}
+          >
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) onUploadImageFile(exercise.id, file);
+              }}
+              className="sr-only"
+            />
+            {hasValidImage ? (
+              <>
+                <img
+                  key={exercise.imageUrl}
+                  src={exercise.imageUrl}
+                  alt={exercise.name}
+                  referrerPolicy={exercise.imageUrl?.startsWith('data:') ? undefined : 'no-referrer'}
+                  onError={() => setImgError(true)}
+                  className={`w-full h-full object-cover transition-opacity duration-150 ${
+                    exercise.completed ? 'opacity-60' : 'opacity-100'
+                  }`}
+                />
+                <span className="absolute inset-x-0 bottom-0 py-1 bg-zinc-950/85 text-[11px] font-medium text-zinc-200 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+                  Upload
+                </span>
+              </>
+            ) : (
+              <span className="flex flex-col items-center justify-center gap-1 px-1.5 text-zinc-400 group-hover:text-orange-400 transition-colors">
+                <Camera className="w-5 h-5" aria-hidden="true" />
+                <span className="text-[11px] font-medium leading-tight">Upload</span>
               </span>
-            </>
-          ) : (
-            <span className="flex flex-col items-center justify-center gap-1 px-1.5 text-zinc-400 group-hover:text-orange-400 transition-colors">
-              <Camera className="w-5 h-5" aria-hidden="true" />
-              <span className="text-[11px] font-medium leading-tight">Foto</span>
-            </span>
-          )}
-        </button>
+            )}
+          </label>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onTriggerImageUpload(exercise.id)}
+            aria-label={
+              hasValidImage
+                ? `Alterar foto de ${exercise.name}`
+                : `Adicionar foto de ${exercise.name}`
+            }
+            className={`relative w-20 h-20 min-w-[80px] rounded-xl overflow-hidden flex flex-col items-center justify-center text-center transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 ${
+              hasValidImage
+                ? 'border border-zinc-700 bg-[#0b0c0e]'
+                : 'border border-dashed border-zinc-600 bg-[#0b0c0e] hover:border-orange-500/60'
+            }`}
+          >
+            {hasValidImage ? (
+              <>
+                <img
+                  key={exercise.imageUrl}
+                  src={exercise.imageUrl}
+                  alt={exercise.name}
+                  referrerPolicy={exercise.imageUrl?.startsWith('data:') ? undefined : 'no-referrer'}
+                  onError={() => setImgError(true)}
+                  className={`w-full h-full object-cover transition-opacity duration-150 ${
+                    exercise.completed ? 'opacity-60' : 'opacity-100'
+                  }`}
+                />
+                <span className="absolute inset-x-0 bottom-0 py-1 bg-zinc-950/85 text-[11px] font-medium text-zinc-200 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
+                  Alterar
+                </span>
+              </>
+            ) : (
+              <span className="flex flex-col items-center justify-center gap-1 px-1.5 text-zinc-400 group-hover:text-orange-400 transition-colors">
+                <Camera className="w-5 h-5" aria-hidden="true" />
+                <span className="text-[11px] font-medium leading-tight">Foto</span>
+              </span>
+            )}
+          </button>
+        )
       ) : (
         <div className="relative w-20 h-20 min-w-[80px] rounded-xl overflow-hidden flex items-center justify-center border border-zinc-800 bg-[#0b0c0e] shrink-0">
           {hasValidImage ? (
@@ -139,8 +194,39 @@ export function ExerciseCard({
       {/* Center Info & Controls */}
       <div className="flex-1 min-w-0">
         {/* Clean Unboxed Metadata Line (Zero-Pill Rule) */}
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-zinc-400">
-          <span className="font-semibold text-orange-400">{exercise.muscle}</span>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-400">
+          {isProfessor && onUpdateMuscle ? (
+            <label className="inline-flex items-center">
+              <span className="sr-only">
+                Organizar grupo muscular de {exercise.name}
+              </span>
+              <select
+                value={exercise.muscle}
+                onChange={(e) =>
+                  onUpdateMuscle(exercise.id, e.target.value as ExerciseMuscle)
+                }
+                title="Organizar em qual grupo muscular este exercício fica"
+                className={`rounded-lg px-2 py-0.5 text-xs font-semibold focus:outline-none cursor-pointer border ${
+                  exercise.muscle === UNASSIGNED_MUSCLE
+                    ? 'bg-amber-500/15 border-amber-500/60 text-amber-300 hover:border-amber-400 focus:border-amber-400'
+                    : 'bg-[#0b0c0e] border-zinc-700 hover:border-orange-500/50 text-orange-400 focus:border-orange-500'
+                }`}
+              >
+                {exercise.muscle === UNASSIGNED_MUSCLE && (
+                  <option value={UNASSIGNED_MUSCLE} className="bg-[#14161a] text-amber-300">
+                    Sem grupo · Organizar...
+                  </option>
+                )}
+                {MUSCLE_GROUPS.map((group) => (
+                  <option key={group} value={group} className="bg-[#14161a] text-zinc-100">
+                    {group}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <span className="font-semibold text-orange-400">{exercise.muscle}</span>
+          )}
           {exercise.muscle !== 'Cardio' && exercise.setsReps.trim().length > 0 && (
             <>
               <span aria-hidden="true">·</span>

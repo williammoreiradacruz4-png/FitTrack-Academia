@@ -1,11 +1,12 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { Camera, FileText, Trash2, Video, X } from 'lucide-react';
+import { CheckCircle2, FileText, ImagePlus, Plus, Trash2, Upload, Video, X } from 'lucide-react';
 import {
   DayOfWeek,
   Exercise,
+  ExerciseMuscle,
   MUSCLE_GROUPS,
-  MuscleGroup,
   ScheduleRange,
+  UNASSIGNED_MUSCLE,
   formatCardioMinutes,
   getDaysForRange,
   isTimeBasedExercise,
@@ -20,8 +21,9 @@ import {
 interface ExerciseModalProps {
   isOpen: boolean;
   editingExercise: Exercise | null;
+  isCreator?: boolean;
   defaultDay?: DayOfWeek;
-  defaultMuscle?: MuscleGroup;
+  defaultMuscle?: ExerciseMuscle;
   scheduleRange: ScheduleRange;
   onClose: () => void;
   onSave: (data: Omit<Exercise, 'id' | 'completed'>, existingId?: string) => void;
@@ -32,6 +34,7 @@ const MAX_VIDEO_SECONDS = 50 * 60; // 50 minutos
 export function ExerciseModal({
   isOpen,
   editingExercise,
+  isCreator = false,
   defaultDay,
   defaultMuscle,
   scheduleRange,
@@ -39,7 +42,9 @@ export function ExerciseModal({
   onSave,
 }: ExerciseModalProps) {
   const [name, setName] = useState('');
-  const [muscle, setMuscle] = useState<MuscleGroup>('Peito');
+  const [muscle, setMuscle] = useState<ExerciseMuscle>(
+    isCreator ? UNASSIGNED_MUSCLE : 'Peito'
+  );
   const [setsReps, setSetsReps] = useState('4 × 10–12');
   const [weight, setWeight] = useState('20');
   const [durationSeconds, setDurationSeconds] = useState('45');
@@ -52,13 +57,15 @@ export function ExerciseModal({
   const [pendingVideoFile, setPendingVideoFile] = useState<File | null>(null);
   const [removedVideoFileId, setRemovedVideoFileId] = useState<string | undefined>(undefined);
   const [imageUrl, setImageUrl] = useState<string | undefined>(undefined);
+  const [isDraggingImage, setIsDraggingImage] = useState(false);
   const [selectedDays, setSelectedDays] = useState<DayOfWeek[]>([]);
   const [isConjugated, setIsConjugated] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [savedFeedback, setSavedFeedback] = useState('');
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -87,17 +94,19 @@ export function ExerciseModal({
       setSelectedDays(editingExercise.days ?? []);
       setIsConjugated(Boolean(editingExercise.isConjugated));
     } else {
+      const initialMuscle: ExerciseMuscle =
+        defaultMuscle ?? (isCreator ? UNASSIGNED_MUSCLE : 'Peito');
       setName('');
-      setMuscle(defaultMuscle ?? 'Peito');
+      setMuscle(initialMuscle);
       setSetsReps(
-        defaultMuscle === 'Cardio'
+        initialMuscle === 'Cardio'
           ? ''
-          : defaultMuscle === 'Abdômen'
+          : initialMuscle === 'Abdômen'
             ? '4 séries'
             : '4 × 10–12'
       );
       setWeight('20');
-      setDurationSeconds(defaultMuscle === 'Cardio' ? '20' : '45');
+      setDurationSeconds(initialMuscle === 'Cardio' ? '20' : '45');
       setNotes('');
       setExecutionInstructions('');
       setVideoUrl('');
@@ -112,7 +121,8 @@ export function ExerciseModal({
     setRemovedVideoFileId(undefined);
     setIsSaving(false);
     setErrorMsg('');
-  }, [isOpen, editingExercise, defaultDay, defaultMuscle]);
+    setSavedFeedback('');
+  }, [isOpen, editingExercise, defaultDay, defaultMuscle, isCreator]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -134,18 +144,21 @@ export function ExerciseModal({
     );
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const processImageFile = async (file: File) => {
     try {
       const compressed = await compressImageFile(file);
       setImageUrl(compressed);
       setErrorMsg('');
     } catch {
       setErrorMsg('Não foi possível carregar a imagem selecionada.');
-    } finally {
-      e.target.value = '';
     }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    await processImageFile(file);
   };
 
   const handleVideoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -183,8 +196,32 @@ export function ExerciseModal({
     setVideoFileName(undefined);
   };
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const resetForNextEntry = (keepMuscle: ExerciseMuscle) => {
+    setName('');
+    setSetsReps(
+      keepMuscle === 'Cardio'
+        ? ''
+        : keepMuscle === 'Abdômen'
+          ? '4 séries'
+          : '4 × 10–12'
+    );
+    setWeight('20');
+    setDurationSeconds(keepMuscle === 'Cardio' ? '20' : '45');
+    setNotes('');
+    setExecutionInstructions('');
+    setVideoUrl('');
+    setVideoFileId(undefined);
+    setVideoFileName(undefined);
+    setVideoDurationLabel('');
+    setPendingVideoFile(null);
+    setRemovedVideoFileId(undefined);
+    setImageUrl(undefined);
+    setSelectedDays(defaultDay ? [defaultDay] : []);
+    setIsConjugated(false);
+    window.setTimeout(() => nameInputRef.current?.focus(), 50);
+  };
+
+  const saveExerciseForm = async (keepOpenAfterSave: boolean) => {
     const trimmedName = name.trim();
     if (!trimmedName) {
       setErrorMsg('Informe o nome do exercício.');
@@ -193,6 +230,7 @@ export function ExerciseModal({
 
     setIsSaving(true);
     setErrorMsg('');
+    setSavedFeedback('');
 
     try {
       let nextVideoFileId = videoFileId;
@@ -248,17 +286,28 @@ export function ExerciseModal({
           videoFileName: nextVideoFileName,
           videoDurationLabel: videoDurationLabel.trim() || undefined,
           imageUrl,
-          days: selectedDays.length > 0 ? selectedDays : undefined,
+          days: !isCreator && selectedDays.length > 0 ? selectedDays : undefined,
           isConjugated: isConjugated || undefined,
         },
         editingExercise?.id
       );
-      onClose();
+
+      if (keepOpenAfterSave && !editingExercise) {
+        resetForNextEntry(muscle);
+        setSavedFeedback(`"${trimmedName}" adicionado! Cadastre o próximo exercício.`);
+      } else {
+        onClose();
+      }
     } catch {
       setErrorMsg('Não foi possível salvar o vídeo localmente. Tente usar um link ou arquivo menor.');
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    await saveExerciseForm(false);
   };
 
   return (
@@ -276,7 +325,13 @@ export function ExerciseModal({
 
         <div className="flex items-center justify-between gap-4 mb-5">
           <h2 id="exercise-modal-title" className="font-display text-2xl font-bold text-zinc-50">
-            {editingExercise ? 'Editar Exercício' : 'Novo Exercício'}
+            {editingExercise
+              ? isCreator
+                ? 'Editar Exercício da Galeria'
+                : 'Editar Exercício'
+              : isCreator
+                ? 'Novo Exercício na Galeria'
+                : 'Novo Exercício'}
           </h2>
 
           <button
@@ -297,11 +352,103 @@ export function ExerciseModal({
             </p>
           )}
 
+          {savedFeedback && (
+            <div
+              role="status"
+              className="flex items-center gap-2 text-xs font-medium text-emerald-300 bg-emerald-500/10 border border-emerald-500/35 rounded-lg px-3 py-2"
+            >
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" aria-hidden="true" />
+              <span>{savedFeedback}</span>
+            </div>
+          )}
+
+          {/* Prominent PC Image Picker & Preview */}
+          <div>
+            <span className="block text-xs font-medium text-zinc-300 mb-1.5">
+              Upload de imagem do exercício (galeria do PC / aparelho)
+            </span>
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDraggingImage(true);
+              }}
+              onDragLeave={() => setIsDraggingImage(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDraggingImage(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file && file.type.startsWith('image/')) {
+                  void processImageFile(file);
+                }
+              }}
+              className={`rounded-2xl border p-3.5 flex items-center gap-3.5 transition-colors ${
+                isDraggingImage
+                  ? 'border-orange-500 bg-orange-500/10'
+                  : 'border-zinc-800 bg-[#0b0c0e]'
+              }`}
+            >
+              {imageUrl ? (
+                <div className="w-20 h-20 rounded-xl overflow-hidden border border-zinc-700 shrink-0 bg-[#14161a]">
+                  <img
+                    src={imageUrl}
+                    alt="Prévia do exercício"
+                    referrerPolicy={imageUrl.startsWith('data:') ? undefined : 'no-referrer'}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              ) : (
+                <label className="w-20 h-20 rounded-xl border border-dashed border-zinc-700 hover:border-orange-500/60 bg-[#14161a] flex flex-col items-center justify-center gap-1 text-zinc-400 hover:text-orange-400 shrink-0 cursor-pointer transition-colors">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="sr-only"
+                  />
+                  <ImagePlus className="w-5 h-5" aria-hidden="true" />
+                  <span className="text-[10px] font-medium">Upload</span>
+                </label>
+              )}
+
+              <div className="flex-1 min-w-0 space-y-2">
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  {imageUrl
+                    ? 'Imagem pronta e otimizada para carregar rapidamente em qualquer dispositivo.'
+                    : 'Clique no botão abaixo para escolher uma foto no PC ou arraste a imagem para cá.'}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="min-h-[40px] px-3.5 py-2 rounded-xl bg-orange-500/15 border border-orange-500/45 hover:bg-orange-500 hover:text-zinc-950 text-xs font-bold text-orange-300 inline-flex items-center gap-1.5 cursor-pointer transition-colors">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileChange}
+                      className="sr-only"
+                    />
+                    <Upload className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>{imageUrl ? 'Trocar imagem (Upload)' : 'Fazer upload de imagem'}</span>
+                  </label>
+
+                  {imageUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setImageUrl(undefined)}
+                      aria-label="Remover foto selecionada"
+                      className="min-h-[40px] px-2.5 py-1.5 rounded-xl border border-zinc-800 hover:border-rose-500/40 text-xs text-zinc-400 hover:text-rose-400 flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Remover</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div>
             <label htmlFor="ex-name" className="block text-xs font-medium text-zinc-300 mb-1.5">
               Nome do exercício
             </label>
             <input
+              ref={nameInputRef}
               id="ex-name"
               type="text"
               required
@@ -320,13 +467,13 @@ export function ExerciseModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label htmlFor="ex-muscle" className="block text-xs font-medium text-zinc-300 mb-1.5">
-                Grupo muscular
+                {isCreator ? 'Grupo muscular (opcional)' : 'Grupo muscular'}
               </label>
               <select
                 id="ex-muscle"
                 value={muscle}
                 onChange={(e) => {
-                  const nextMuscle = e.target.value as MuscleGroup;
+                  const nextMuscle = e.target.value as ExerciseMuscle;
                   const wasCardio = muscle === 'Cardio';
                   setMuscle(nextMuscle);
                   if (nextMuscle === 'Cardio') {
@@ -345,6 +492,11 @@ export function ExerciseModal({
                 }}
                 className="w-full min-h-[44px] px-3 py-2.5 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm text-zinc-100 focus:outline-none focus:border-orange-500"
               >
+                {(isCreator || muscle === UNASSIGNED_MUSCLE) && (
+                  <option value={UNASSIGNED_MUSCLE}>
+                    Sem grupo (professor organiza)
+                  </option>
+                )}
                 {MUSCLE_GROUPS.map((group) => (
                   <option key={group} value={group}>
                     {group}
@@ -404,42 +556,44 @@ export function ExerciseModal({
             </div>
           )}
 
-          {/* Optional Day Assignment */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="block text-xs font-medium text-zinc-300">
-                Dias do treino (opcional)
-              </span>
-              {selectedDays.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedDays([])}
-                  className="text-xs text-orange-400 hover:text-orange-300 cursor-pointer"
-                >
-                  Deixar livre
-                </button>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {availableDays.map((day) => {
-                const active = selectedDays.includes(day.id);
-                return (
+          {/* Optional Day Assignment (Professors/Academies only, hidden for Creator catalog) */}
+          {!isCreator && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="block text-xs font-medium text-zinc-300">
+                  Dias do treino (opcional)
+                </span>
+                {selectedDays.length > 0 && (
                   <button
-                    key={day.id}
                     type="button"
-                    onClick={() => handleToggleDay(day.id)}
-                    className={`min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
-                      active
-                        ? 'bg-orange-500 text-zinc-950 font-bold'
-                        : 'bg-[#0b0c0e] text-zinc-400 border border-zinc-800 hover:text-zinc-200'
-                    }`}
+                    onClick={() => setSelectedDays([])}
+                    className="text-xs text-orange-400 hover:text-orange-300 cursor-pointer"
                   >
-                    {day.short}
+                    Deixar livre
                   </button>
-                );
-              })}
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {availableDays.map((day) => {
+                  const active = selectedDays.includes(day.id);
+                  return (
+                    <button
+                      key={day.id}
+                      type="button"
+                      onClick={() => handleToggleDay(day.id)}
+                      className={`min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
+                        active
+                          ? 'bg-orange-500 text-zinc-950 font-bold'
+                          : 'bg-[#0b0c0e] text-zinc-400 border border-zinc-800 hover:text-zinc-200'
+                      }`}
+                    >
+                      {day.short}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Optional Conjugado Toggle */}
           <label className="flex items-center justify-between gap-3 min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[#0b0c0e] border border-zinc-800 cursor-pointer">
@@ -459,11 +613,15 @@ export function ExerciseModal({
             />
           </label>
 
-          {/* Teacher Authoring Section */}
+          {/* Teacher / Creator Authoring Section */}
           <div className="bg-[#0b0c0e] border border-zinc-800 rounded-2xl p-4 space-y-4">
             <div className="flex items-center gap-2 text-xs font-semibold text-orange-400">
               <FileText className="w-4 h-4 shrink-0" aria-hidden="true" />
-              <span>Orientação do Professor (Aluno visualiza ao clicar no nome)</span>
+              <span>
+                {isCreator
+                  ? 'Detalhamento completo do exercício (visível para professores e alunos)'
+                  : 'Orientação do Professor (Aluno visualiza ao clicar no nome)'}
+              </span>
             </div>
 
             <div>
@@ -567,61 +725,28 @@ export function ExerciseModal({
             </div>
           </div>
 
-          <div>
-            <span className="block text-xs font-medium text-zinc-300 mb-1.5">
-              Imagem do exercício (opcional)
-            </span>
-            <div className="flex items-center gap-3">
-              {imageUrl ? (
-                <div className="w-16 h-16 rounded-xl overflow-hidden border border-zinc-700 shrink-0 bg-[#0b0c0e]">
-                  <img
-                    src={imageUrl}
-                    alt="Prévia do exercício"
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              ) : null}
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="min-h-[44px] px-4 py-2 rounded-xl border border-zinc-700 hover:border-zinc-600 bg-[#0b0c0e] text-xs font-medium text-zinc-200 flex items-center gap-2 cursor-pointer transition-colors"
-              >
-                <Camera className="w-4 h-4 text-orange-400" aria-hidden="true" />
-                <span>{imageUrl ? 'Trocar foto' : 'Selecionar foto'}</span>
-              </button>
-
-              {imageUrl && (
-                <button
-                  type="button"
-                  onClick={() => setImageUrl(undefined)}
-                  aria-label="Remover foto selecionada"
-                  className="min-h-[44px] min-w-[44px] rounded-xl border border-zinc-800 hover:border-rose-500/40 text-zinc-400 hover:text-rose-400 flex items-center justify-center cursor-pointer transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" aria-hidden="true" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-800">
+          <div className="flex flex-wrap items-center justify-end gap-2.5 pt-3 border-t border-zinc-800">
             <button
               type="button"
               onClick={onClose}
               disabled={isSaving}
-              className="min-h-[44px] px-5 py-2.5 rounded-xl border border-zinc-700 text-sm font-medium text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800/60 transition-colors cursor-pointer"
+              className="min-h-[44px] px-4 py-2.5 rounded-xl border border-zinc-700 text-sm font-medium text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800/60 transition-colors cursor-pointer"
             >
-              Cancelar
+              {savedFeedback ? 'Concluir' : 'Cancelar'}
             </button>
+
+            {!editingExercise && (
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={() => void saveExerciseForm(true)}
+                className="min-h-[44px] px-4 py-2.5 rounded-xl border border-orange-500/45 bg-orange-500/10 hover:bg-orange-500/20 disabled:opacity-60 text-orange-300 text-xs sm:text-sm font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Plus className="w-4 h-4" aria-hidden="true" />
+                <span>Salvar e adicionar outro</span>
+              </button>
+            )}
+
             <button
               type="submit"
               disabled={isSaving}

@@ -16,6 +16,8 @@ import { db, logFirestoreError, OperationType } from '../lib/firebase';
 import {
   Academy,
   Exercise,
+  ExerciseMuscle,
+  GALLERY_GYM_CODE,
   PhysicalAssessment,
   StudentProfile,
   StudentWorkoutRecord,
@@ -488,7 +490,8 @@ export function subscribeLibraryByGym(
     (snap) => {
       if (snap.empty && !initialSeedChecked && !snap.metadata.fromCache) {
         initialSeedChecked = true;
-        if (defaults.length > 0 && !isBrowserOffline()) {
+        const shouldSeed = cleanCode !== GALLERY_GYM_CODE && defaults.length > 0;
+        if (shouldSeed && !isBrowserOffline()) {
           const nowIso = new Date().toISOString();
           const batch = writeBatch(db);
           defaults.forEach((ex) => {
@@ -507,9 +510,11 @@ export function subscribeLibraryByGym(
           });
         }
         onUpdate(
-          sortLibraryExercises(
-            defaults.map((ex) => ({ ...ex, gymCode: cleanCode }))
-          )
+          shouldSeed
+            ? sortLibraryExercises(
+                defaults.map((ex) => ({ ...ex, gymCode: cleanCode }))
+              )
+            : []
         );
         return;
       }
@@ -530,6 +535,154 @@ export function subscribeLibraryByGym(
       logFirestoreError(error, OperationType.LIST, 'fittrack_library');
     }
   );
+}
+
+export function subscribeGlobalGallery(
+  onUpdate: (exercises: Exercise[]) => void
+): Unsubscribe {
+  const q = query(
+    collection(db, 'fittrack_library'),
+    where('gymCode', '==', GALLERY_GYM_CODE)
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list: Exercise[] = [];
+      snap.forEach((docSnap) => {
+        const data = docSnap.data() as Exercise;
+        if (data && data.id) {
+          list.push(data);
+        }
+      });
+      onUpdate(sortLibraryExercises(list));
+    },
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, 'fittrack_library');
+    }
+  );
+}
+
+function normalizeGalleryMatchKey(ex: Pick<Exercise, 'name' | 'muscle'>): string {
+  return `${ex.muscle}::${ex.name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()}`;
+}
+
+export function buildImportedGalleryExercise(
+  galEx: Exercise,
+  cleanCode: string,
+  nowIso: string
+): Exercise {
+  return {
+    id: `gal-${galEx.id}`,
+    name: galEx.name,
+    muscle: galEx.muscle,
+    setsReps: galEx.setsReps,
+    weight: galEx.weight,
+    durationSeconds: galEx.durationSeconds,
+    completed: false,
+    imageUrl: galEx.imageUrl,
+    notes: galEx.notes,
+    executionInstructions: galEx.executionInstructions,
+    videoUrl: galEx.videoUrl,
+    videoDurationLabel: galEx.videoDurationLabel,
+    isConjugated: galEx.isConjugated,
+    gymCode: cleanCode,
+    updatedAt: nowIso,
+  };
+}
+
+export async function saveBulkLibraryExercises(
+  rawGymCode: string,
+  exercises: Exercise[]
+): Promise<{ syncedToCloud: boolean }> {
+  const cleanCode = normalizeAcademyCode(rawGymCode);
+  if (!cleanCode || exercises.length === 0 || isBrowserOffline()) {
+    return { syncedToCloud: false };
+  }
+
+  const nowIso = new Date().toISOString();
+  try {
+    const CHUNK_SIZE = 400;
+    for (let i = 0; i < exercises.length; i += CHUNK_SIZE) {
+      const chunk = exercises.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+      chunk.forEach((ex) => {
+        const docId = getLibraryDocId(cleanCode, ex.id);
+        batch.set(
+          doc(db, 'fittrack_library', docId),
+          sanitizeForFirestore({
+            ...ex,
+            gymCode: cleanCode,
+            updatedAt: nowIso,
+          })
+        );
+      });
+      await batch.commit();
+    }
+    return { syncedToCloud: true };
+  } catch (error) {
+    logFirestoreError(error, OperationType.WRITE, 'fittrack_library');
+    return { syncedToCloud: false };
+  }
+}
+
+export async function importGalleryExercisesToGym(
+  rawGymCode: string,
+  galleryExercises: Exercise[],
+  existingExercises: Exercise[],
+  muscleOverrides?: Record<string, ExerciseMuscle>
+): Promise<{ addedExercises: Exercise[]; syncedToCloud: boolean }> {
+  const cleanCode = normalizeAcademyCode(rawGymCode);
+  if (!cleanCode || cleanCode === GALLERY_GYM_CODE || galleryExercises.length === 0) {
+    return { addedExercises: [], syncedToCloud: false };
+  }
+
+  const existingIds = new Set(existingExercises.map((ex) => ex.id));
+  const existingKeys = new Set(existingExercises.map(normalizeGalleryMatchKey));
+  const nowIso = new Date().toISOString();
+
+  const toAdd: Exercise[] = [];
+  galleryExercises.forEach((galEx) => {
+    const chosenMuscle = muscleOverrides?.[galEx.id] ?? galEx.muscle;
+    const targetId = `gal-${galEx.id}`;
+    const overrideEx: Exercise =
+      chosenMuscle !== galEx.muscle
+        ? {
+            ...galEx,
+            muscle: chosenMuscle,
+            setsReps:
+              chosenMuscle === 'Cardio'
+                ? ''
+                : galEx.setsReps || '4 × 10–12',
+            durationSeconds:
+              chosenMuscle === 'Cardio'
+                ? galEx.durationSeconds || 1200
+                : galEx.durationSeconds,
+          }
+        : galEx;
+    const key = normalizeGalleryMatchKey(overrideEx);
+    if (existingIds.has(targetId) || existingKeys.has(key)) {
+      return;
+    }
+    existingIds.add(targetId);
+    existingKeys.add(key);
+    toAdd.push(buildImportedGalleryExercise(overrideEx, cleanCode, nowIso));
+  });
+
+  if (toAdd.length === 0) {
+    return { addedExercises: [], syncedToCloud: true };
+  }
+
+  if (isBrowserOffline()) {
+    return { addedExercises: toAdd, syncedToCloud: false };
+  }
+
+  const res = await saveBulkLibraryExercises(cleanCode, toAdd);
+  return { addedExercises: toAdd, syncedToCloud: res.syncedToCloud };
 }
 
 /* ==================== fittrack_student_workouts (Treinos Liberados) ==================== */

@@ -3,8 +3,11 @@ import {
   BellRing,
   ClipboardList,
   Dumbbell,
+  FolderOpen,
+  Images,
   Plus,
   Search,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { DEFAULT_EXERCISES } from './data/defaultExercises';
@@ -16,11 +19,15 @@ import {
   DayFilter,
   DayOfWeek,
   Exercise,
+  ExerciseMuscle,
   FILTER_OPTIONS,
   FilterOption,
+  GALLERY_GYM_CODE,
+  MUSCLE_GROUPS,
   ReminderSettings,
   StudentProfile,
   StudentWorkoutRecord,
+  UNASSIGNED_MUSCLE,
   UserSession,
   WorkoutPlan,
   formatDayPlanSummary,
@@ -34,8 +41,11 @@ import { compressImageFile, compressLogoFile } from './utils/imageCompression';
 import {
   deleteLibraryExercise,
   fetchStudentWorkoutByCpf,
+  importGalleryExercisesToGym,
+  saveBulkLibraryExercises,
   saveLibraryExercise,
   subscribeAcademyByCode,
+  subscribeGlobalGallery,
   subscribeLibraryByGym,
   subscribeStudentProfileByCpf,
   subscribeStudentWorkout,
@@ -56,6 +66,9 @@ import { StudentWaitingScreen } from './components/StudentWaitingScreen';
 import { StudentAssessmentView } from './components/StudentAssessmentView';
 import { LinkAcademyModal } from './components/LinkAcademyModal';
 import { QrCodeModal } from './components/QrCodeModal';
+import { GlobalGalleryView } from './components/GlobalGalleryView';
+import { BulkGalleryUploadModal } from './components/BulkGalleryUploadModal';
+import { CreatorAccessModal } from './components/CreatorAccessModal';
 
 const PLAN_STORAGE_KEY = 'fittrack_plan_v1';
 const REMINDERS_STORAGE_KEY = 'fittrack_reminders_v1';
@@ -119,7 +132,7 @@ interface ActiveReminderBanner {
   targetDay?: DayOfWeek;
 }
 
-type ProfessorTab = 'workouts' | 'assessment';
+type ProfessorTab = 'workouts' | 'gallery' | 'assessment';
 type StudentTab = 'workout' | 'assessment';
 
 export default function App() {
@@ -127,6 +140,7 @@ export default function App() {
   const [professorTab, setProfessorTab] = useState<ProfessorTab>('workouts');
   const [studentTab, setStudentTab] = useState<StudentTab>('workout');
   const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [galleryExercises, setGalleryExercises] = useState<Exercise[]>([]);
   const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null);
   const [studentWorkout, setStudentWorkout] = useState<StudentWorkoutRecord | null>(null);
   const [isCheckingWorkout, setIsCheckingWorkout] = useState(false);
@@ -136,11 +150,14 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterOption>('Todos');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [isCreatorAccessOpen, setIsCreatorAccessOpen] = useState(false);
   const [isRemindersModalOpen, setIsRemindersModalOpen] = useState(false);
   const [isLinkAcademyModalOpen, setIsLinkAcademyModalOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
   const [detailsExercise, setDetailsExercise] = useState<Exercise | null>(null);
+  const [detailsFromGallery, setDetailsFromGallery] = useState(false);
   const [undoToast, setUndoToast] = useState<UndoToastState | null>(null);
   const [reminderBanner, setReminderBanner] = useState<ActiveReminderBanner | null>(null);
   const [gymMissingInCloud, setGymMissingInCloud] = useState(false);
@@ -193,6 +210,7 @@ export default function App() {
   const handleLogout = () => {
     setSession(null);
     setExercises([]);
+    setGalleryExercises([]);
     setStudentProfile(null);
     setStudentWorkout(null);
     setProfessorTab('workouts');
@@ -201,9 +219,12 @@ export default function App() {
     setSearchQuery('');
     setActiveFilter('Todos');
     setIsModalOpen(false);
+    setIsBulkModalOpen(false);
+    setIsCreatorAccessOpen(false);
     setIsRemindersModalOpen(false);
     setIsQrModalOpen(false);
     setDetailsExercise(null);
+    setDetailsFromGallery(false);
     setEditingExercise(null);
     setUndoToast(null);
     setReminderBanner(null);
@@ -212,6 +233,9 @@ export default function App() {
   const isProfessor = session?.role === 'professor';
   const professorGymCode = normalizeAcademyCode(
     session?.academyCode ?? session?.identifier ?? ''
+  );
+  const isCreator = Boolean(
+    isProfessor && (session?.isCreator || professorGymCode === GALLERY_GYM_CODE)
   );
   const studentCpf =
     session?.role === 'student'
@@ -224,7 +248,7 @@ export default function App() {
     ? exercises
     : (studentWorkout?.exercises ?? []);
   const showWorkouts = isProfessor
-    ? professorTab === 'workouts'
+    ? isCreator || professorTab === 'workouts'
     : studentTab === 'workout' && studentHasWorkout;
 
   // Real-time onSnapshot subscription for Professor Exercise Library (fittrack_library)
@@ -236,14 +260,30 @@ export default function App() {
 
     const unsubscribeLibrary = subscribeLibraryByGym(
       professorGymCode,
-      DEFAULT_EXERCISES,
+      isCreator ? [] : DEFAULT_EXERCISES,
       (cloudExercises) => setExercises(cloudExercises)
     );
 
     return () => {
       unsubscribeLibrary();
     };
-  }, [session?.role, professorGymCode]);
+  }, [session?.role, professorGymCode, isCreator]);
+
+  // Real-time onSnapshot subscription for the Global Creator Gallery (visible to all professors/academies)
+  useEffect(() => {
+    if (!session || session.role !== 'professor' || isCreator) {
+      setGalleryExercises([]);
+      return;
+    }
+
+    const unsubscribeGallery = subscribeGlobalGallery((items) => {
+      setGalleryExercises(items);
+    });
+
+    return () => {
+      unsubscribeGallery();
+    };
+  }, [session?.role, isCreator]);
 
   // Load & subscribe in real time to personalized workout + profile when a student logs in
   useEffect(() => {
@@ -493,6 +533,27 @@ export default function App() {
     [dayScopedExercises]
   );
 
+  const unassignedCount = useMemo(
+    () =>
+      isProfessor
+        ? dayScopedExercises.filter((ex) => ex.muscle === UNASSIGNED_MUSCLE).length
+        : 0,
+    [isProfessor, dayScopedExercises]
+  );
+
+  const libraryFilterTabs = useMemo<FilterOption[]>(() => {
+    if (isProfessor && unassignedCount > 0) {
+      return ['Todos', UNASSIGNED_MUSCLE, ...MUSCLE_GROUPS];
+    }
+    return FILTER_OPTIONS;
+  }, [isProfessor, unassignedCount]);
+
+  useEffect(() => {
+    if (activeFilter === UNASSIGNED_MUSCLE && unassignedCount === 0) {
+      setActiveFilter('Todos');
+    }
+  }, [activeFilter, unassignedCount]);
+
   const currentDayMeta =
     activeDay === 'todos'
       ? null
@@ -554,6 +615,33 @@ export default function App() {
     );
   };
 
+  const handleUpdateMuscle = (id: string, nextMuscle: ExerciseMuscle) => {
+    applyExerciseMutation(
+      (list) =>
+        list.map((ex) => {
+          if (ex.id !== id) return ex;
+          const becomingCardio = nextMuscle === 'Cardio';
+          const wasCardio = ex.muscle === 'Cardio';
+          return {
+            ...ex,
+            muscle: nextMuscle,
+            setsReps: becomingCardio
+              ? ''
+              : wasCardio
+                ? ex.setsReps || '4 × 10–12'
+                : ex.setsReps,
+            weight: becomingCardio ? 0 : ex.weight,
+            durationSeconds: becomingCardio
+              ? ex.durationSeconds || 1200
+              : wasCardio
+                ? undefined
+                : ex.durationSeconds,
+          };
+        }),
+      id
+    );
+  };
+
   const handleResetChecks = () => {
     if (completedCount === 0) return;
     const snapshot = activeExercises;
@@ -572,21 +660,7 @@ export default function App() {
     }
   };
 
-  const handleTriggerImageUpload = (id: string) => {
-    uploadTargetIdRef.current = id;
-    hiddenFileInputRef.current?.click();
-  };
-
-  const handleHiddenImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const inputEl = e.target;
-    const file = inputEl.files?.[0];
-    const targetId = uploadTargetIdRef.current;
-    if (!file || !targetId) {
-      inputEl.value = '';
-      uploadTargetIdRef.current = null;
-      return;
-    }
-
+  const handleUploadImageFile = async (targetId: string, file: File) => {
     try {
       const compressed = await compressImageFile(file);
       const target = exercisesRef.current.find((ex) => ex.id === targetId);
@@ -614,6 +688,26 @@ export default function App() {
       }
     } catch {
       setSyncWarning('Não foi possível processar a imagem selecionada.');
+    }
+  };
+
+  const handleTriggerImageUpload = (id: string) => {
+    uploadTargetIdRef.current = id;
+    hiddenFileInputRef.current?.click();
+  };
+
+  const handleHiddenImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const inputEl = e.target;
+    const file = inputEl.files?.[0];
+    const targetId = uploadTargetIdRef.current;
+    if (!file || !targetId) {
+      inputEl.value = '';
+      uploadTargetIdRef.current = null;
+      return;
+    }
+
+    try {
+      await handleUploadImageFile(targetId, file);
     } finally {
       inputEl.value = '';
       uploadTargetIdRef.current = null;
@@ -702,6 +796,53 @@ export default function App() {
     showUndoToast(`"${target.name}" removido.`, snapshot);
   };
 
+  const handleImportGalleryExercises = async (
+    items: Exercise[],
+    muscleOverrides?: Record<string, ExerciseMuscle>
+  ): Promise<{ addedCount: number; syncedToCloud: boolean }> => {
+    if (!professorGymCode || isCreator) {
+      return { addedCount: 0, syncedToCloud: false };
+    }
+    const res = await importGalleryExercisesToGym(
+      professorGymCode,
+      items,
+      exercisesRef.current,
+      muscleOverrides
+    );
+    if (res.addedExercises.length > 0) {
+      setExercises((prev) => [...res.addedExercises, ...prev]);
+    }
+    if (!res.syncedToCloud && res.addedExercises.length > 0) {
+      setSyncWarning(
+        'Não foi possível sincronizar os exercícios importados com o Firebase. Verifique sua conexão.'
+      );
+    } else if (res.syncedToCloud) {
+      setSyncWarning('');
+    }
+    return {
+      addedCount: res.addedExercises.length,
+      syncedToCloud: res.syncedToCloud,
+    };
+  };
+
+  const handlePublishBulkGalleryExercises = async (
+    items: Exercise[]
+  ): Promise<{ syncedToCloud: boolean }> => {
+    if (!isCreator || items.length === 0) {
+      return { syncedToCloud: false };
+    }
+    setExercises((prev) => [...items, ...prev]);
+    const res = await saveBulkLibraryExercises(GALLERY_GYM_CODE, items);
+    if (!res.syncedToCloud) {
+      setSyncWarning(
+        'Não foi possível sincronizar todos os exercícios com o Firebase. Verifique sua conexão.'
+      );
+    } else {
+      setSyncWarning('');
+    }
+    return res;
+  };
+
   const defaultDayForNewExercise: DayOfWeek | undefined =
     isProfessor || activeDay === 'todos' ? undefined : activeDay;
 
@@ -742,6 +883,7 @@ export default function App() {
           showWorkoutActions={showWorkouts}
           onResetChecks={handleResetChecks}
           onOpenNewModal={handleOpenNewModal}
+          onOpenBulkUpload={isCreator ? () => setIsBulkModalOpen(true) : undefined}
           onOpenQrModal={() => setIsQrModalOpen(true)}
           onUploadAcademyLogo={
             isProfessor ? (file) => void handleUploadAcademyLogo(file) : undefined
@@ -788,14 +930,46 @@ export default function App() {
         </div>
       )}
 
-      {isProfessor ? (
+      {isCreator ? (
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-4">
+          <div className="rounded-2xl bg-orange-500/10 border border-orange-500/35 px-4 py-3.5 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5 min-w-0 flex-1">
+              <Sparkles className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" aria-hidden="true" />
+              <div className="text-xs text-zinc-200 leading-relaxed">
+                <strong className="text-orange-300">Modo Criador · Galeria Oficial FitTrack:</strong>{' '}
+                traga várias imagens da galeria do PC sem precisar escolher grupo muscular e adicione o detalhamento quando desejar. Todas as academias acessam na aba <strong>Galeria Global</strong> e cada professor organiza os exercícios na biblioteca.
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsBulkModalOpen(true)}
+                className="min-h-[42px] px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-zinc-950 text-xs font-bold inline-flex items-center gap-2 whitespace-nowrap transition-colors cursor-pointer"
+              >
+                <FolderOpen className="w-4 h-4" aria-hidden="true" />
+                <span>Fazer upload de imagens do PC</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenNewModal}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl border border-orange-500/45 bg-[#14161a] hover:bg-orange-500/15 text-orange-300 text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
+              >
+                <Plus className="w-4 h-4" aria-hidden="true" />
+                <span>Novo Exercício</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : isProfessor ? (
         <nav
           aria-label="Painel do professor"
           className="max-w-6xl mx-auto px-4 sm:px-6 pt-4"
         >
           <div
             role="tablist"
-            className="grid grid-cols-2 sm:inline-grid gap-2 p-1 rounded-xl bg-[#14161a] border border-zinc-800"
+            className="flex flex-wrap sm:inline-flex gap-1.5 p-1 rounded-xl bg-[#14161a] border border-zinc-800"
           >
             <button
               type="button"
@@ -810,6 +984,23 @@ export default function App() {
             >
               <Dumbbell className="w-4 h-4 shrink-0" aria-hidden="true" />
               <span>Biblioteca de Exercícios</span>
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={professorTab === 'gallery'}
+              onClick={() => setProfessorTab('gallery')}
+              className={`min-h-[44px] px-4 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 whitespace-nowrap transition-colors cursor-pointer ${
+                professorTab === 'gallery'
+                  ? 'bg-orange-500 text-zinc-950 font-bold'
+                  : 'text-zinc-300 hover:text-zinc-100'
+              }`}
+            >
+              <Images className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span>
+                Galeria Global{galleryExercises.length > 0 ? ` (${galleryExercises.length})` : ''}
+              </span>
             </button>
 
             <button
@@ -870,7 +1061,23 @@ export default function App() {
         </nav>
       )}
 
-      {isProfessor && professorTab === 'assessment' ? (
+      {isProfessor && !isCreator && professorTab === 'gallery' ? (
+        <GlobalGalleryView
+          galleryExercises={galleryExercises}
+          academyExercises={exercises}
+          academyName={session.academyName ?? session.name}
+          onSelectExercise={(ex) => {
+            setDetailsFromGallery(true);
+            setDetailsExercise(ex);
+          }}
+          onImportExercises={handleImportGalleryExercises}
+          onGoToLibrary={() => {
+            setProfessorTab('workouts');
+            setActiveFilter('Todos');
+          }}
+          onOpenCreatorAccess={() => setIsCreatorAccessOpen(true)}
+        />
+      ) : isProfessor && !isCreator && professorTab === 'assessment' ? (
         <PhysicalAssessmentView
           academyCode={session.academyCode ?? session.identifier}
           academyName={session.academyName ?? session.name}
@@ -1057,8 +1264,9 @@ export default function App() {
               aria-label="Filtrar por grupo muscular"
               className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1"
             >
-              {FILTER_OPTIONS.map((option) => {
+              {libraryFilterTabs.map((option) => {
                 const isActive = activeFilter === option;
+                const isUnassignedTab = option === UNASSIGNED_MUSCLE;
                 return (
                   <button
                     key={option}
@@ -1068,16 +1276,62 @@ export default function App() {
                     onClick={() => setActiveFilter(option)}
                     className={`min-h-[40px] px-4 py-2 rounded-xl text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 ${
                       isActive
-                        ? 'bg-orange-500 text-zinc-950 font-bold'
-                        : 'bg-[#14161a] text-zinc-300 border border-zinc-800 hover:border-zinc-700 hover:text-zinc-100'
+                        ? isUnassignedTab
+                          ? 'bg-amber-400 text-zinc-950 font-bold'
+                          : 'bg-orange-500 text-zinc-950 font-bold'
+                        : isUnassignedTab
+                          ? 'bg-amber-500/10 text-amber-300 border border-amber-500/40 hover:border-amber-400'
+                          : 'bg-[#14161a] text-zinc-300 border border-zinc-800 hover:border-zinc-700 hover:text-zinc-100'
                     }`}
                   >
-                    {option}
+                    {isUnassignedTab ? `Sem grupo (${unassignedCount})` : option}
                   </button>
                 );
               })}
             </div>
           </div>
+
+          {isProfessor && !isCreator && unassignedCount > 0 && (
+            <div className="bg-amber-500/10 border border-amber-500/40 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-xs text-amber-200 leading-relaxed">
+                <strong className="text-amber-300">
+                  {unassignedCount} exercício{unassignedCount === 1 ? '' : 's'} sem grupo muscular definido.
+                </strong>{' '}
+                Escolha o grupo muscular diretamente no seletor de cada exercício abaixo para organizar sua biblioteca.
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveFilter(
+                    activeFilter === UNASSIGNED_MUSCLE ? 'Todos' : UNASSIGNED_MUSCLE
+                  )
+                }
+                className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 text-xs font-bold whitespace-nowrap transition-colors cursor-pointer"
+              >
+                {activeFilter === UNASSIGNED_MUSCLE ? 'Ver todos' : 'Filtrar sem grupo'}
+              </button>
+            </div>
+          )}
+
+          {isProfessor && !isCreator && (
+            <div className="bg-[#14161a] border border-zinc-800 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Images className="w-4 h-4 text-orange-400 shrink-0" aria-hidden="true" />
+                <span className="text-xs text-zinc-300">
+                  {galleryExercises.length > 0
+                    ? `${galleryExercises.length} exercício${galleryExercises.length === 1 ? '' : 's'} na Galeria Global pronto${galleryExercises.length === 1 ? '' : 's'} para importar para sua academia.`
+                    : 'Acesse a Galeria Global para visualizar e importar exercícios cadastrados pelo criador.'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setProfessorTab('gallery')}
+                className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-orange-500/15 border border-orange-500/40 hover:bg-orange-500 hover:text-zinc-950 text-xs font-bold text-orange-300 whitespace-nowrap transition-colors cursor-pointer"
+              >
+                Explorar Galeria
+              </button>
+            </div>
+          )}
 
           {/* Exercise Cards List */}
           {filteredExercises.length > 0 ? (
@@ -1088,11 +1342,18 @@ export default function App() {
                   exercise={exercise}
                   isProfessor={Boolean(isProfessor)}
                   showAssignedDays={!isProfessor && activeDay === 'todos'}
-                  onSelectExercise={(ex) => setDetailsExercise(ex)}
+                  onSelectExercise={(ex) => {
+                    setDetailsFromGallery(false);
+                    setDetailsExercise(ex);
+                  }}
                   onToggleComplete={handleToggleComplete}
                   onUpdateWeight={handleUpdateWeight}
                   onUpdateDuration={handleUpdateDuration}
+                  onUpdateMuscle={isProfessor ? handleUpdateMuscle : undefined}
                   onTriggerImageUpload={handleTriggerImageUpload}
+                  onUploadImageFile={
+                    isProfessor ? (id, file) => void handleUploadImageFile(id, file) : undefined
+                  }
                   onEdit={handleOpenEditModal}
                   onDelete={handleDeleteExercise}
                 />
@@ -1115,9 +1376,11 @@ export default function App() {
                     ? currentDayPlan.mode === 'descanso'
                       ? 'Hoje é dia de descanso programado na sua ficha semanal.'
                       : `Ainda não há exercícios vinculados para ${currentDayMeta?.label}.`
-                    : isProfessor
-                      ? 'Adicione seu primeiro exercício para montar sua biblioteca de treino.'
-                      : 'Nenhum exercício cadastrado na ficha no momento.'}
+                    : isCreator
+                      ? 'Adicione seu primeiro exercício para disponibilizar na Galeria Global.'
+                      : isProfessor
+                        ? 'Adicione seu primeiro exercício ou importe da Galeria Global.'
+                        : 'Nenhum exercício cadastrado na ficha no momento.'}
               </p>
               <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
                 {(searchQuery || activeFilter !== 'Todos') && (
@@ -1130,6 +1393,25 @@ export default function App() {
                     className="min-h-[44px] px-4 py-2 rounded-xl border border-zinc-700 text-xs font-medium text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
                   >
                     Limpar filtros
+                  </button>
+                )}
+                {isProfessor && !isCreator && (
+                  <button
+                    type="button"
+                    onClick={() => setProfessorTab('gallery')}
+                    className="min-h-[44px] px-4 py-2 rounded-xl border border-orange-500/40 text-orange-300 hover:bg-orange-500/10 text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Abrir Galeria Global
+                  </button>
+                )}
+                {isCreator && (
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkModalOpen(true)}
+                    className="min-h-[44px] px-4 py-2 rounded-xl border border-orange-500/40 text-orange-300 hover:bg-orange-500/10 text-xs font-bold inline-flex items-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <FolderOpen className="w-4 h-4" aria-hidden="true" />
+                    <span>Trazer várias imagens do PC</span>
                   </button>
                 )}
                 {isProfessor && (
@@ -1190,11 +1472,12 @@ export default function App() {
         </div>
       )}
 
-      {/* Add / Edit Exercise Modal (Professor only) */}
+      {/* Add / Edit Exercise Modal (Professor & Creator) */}
       {isProfessor && (
         <ExerciseModal
           isOpen={isModalOpen}
           editingExercise={editingExercise}
+          isCreator={isCreator}
           defaultDay={defaultDayForNewExercise}
           defaultMuscle={defaultMuscleForNewExercise}
           scheduleRange={workoutPlan.range}
@@ -1202,6 +1485,22 @@ export default function App() {
           onSave={handleSaveExercise}
         />
       )}
+
+      {/* Bulk PC Image Upload Modal (Creator only) */}
+      {isCreator && (
+        <BulkGalleryUploadModal
+          isOpen={isBulkModalOpen}
+          onClose={() => setIsBulkModalOpen(false)}
+          onPublishAll={handlePublishBulkGalleryExercises}
+        />
+      )}
+
+      {/* Creator Access Modal (Quick switch from Global Gallery) */}
+      <CreatorAccessModal
+        isOpen={isCreatorAccessOpen}
+        onClose={() => setIsCreatorAccessOpen(false)}
+        onAuthenticated={(creatorSession) => handleLogin(creatorSession)}
+      />
 
       {/* Weekly & Water Reminders Modal (Student only) */}
       {!isProfessor && (
@@ -1227,8 +1526,11 @@ export default function App() {
       {/* Exercise Details & Explanatory Video Modal */}
       <ExerciseDetailsModal
         exercise={detailsExercise}
-        isProfessor={Boolean(isProfessor)}
-        onClose={() => setDetailsExercise(null)}
+        isProfessor={Boolean(isProfessor && !detailsFromGallery)}
+        onClose={() => {
+          setDetailsExercise(null);
+          setDetailsFromGallery(false);
+        }}
         onEditAsTeacher={(ex) => handleOpenEditModal(ex)}
       />
 
@@ -1258,7 +1560,7 @@ export default function App() {
       <OfflineIndicator />
     </div>
 
-    {isProfessor && (
+    {isProfessor && !isCreator && (
       <QrCodeModal
         isOpen={isQrModalOpen}
         academyCode={session.academyCode ?? session.identifier}

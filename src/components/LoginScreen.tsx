@@ -7,6 +7,7 @@ import {
   GraduationCap,
   ImagePlus,
   Lock,
+  Sparkles,
   Trash2,
   User,
   X,
@@ -14,6 +15,7 @@ import {
 import {
   Academy,
   BiologicalSex,
+  GALLERY_GYM_CODE,
   StudentProfile,
   UserRole,
   UserSession,
@@ -38,7 +40,7 @@ interface LoginScreenProps {
 }
 
 type AuthSubMode = 'login' | 'register';
-type ProfSubMode = 'login' | 'register' | 'recover';
+type ProfSubMode = 'login' | 'register' | 'recover' | 'creator';
 
 export function LoginScreen({ onLogin }: LoginScreenProps) {
   const [role, setRole] = useState<UserRole>('student');
@@ -78,6 +80,15 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
   const [recoverCode, setRecoverCode] = useState('');
   const [recoverProfName, setRecoverProfName] = useState('');
   const [recoverNewPassword, setRecoverNewPassword] = useState('');
+
+  // Creator Master Gallery Access fields
+  const [creatorAccount, setCreatorAccount] = useState<Academy | null>(null);
+  const [creatorChecking, setCreatorChecking] = useState(false);
+  const [creatorNameInput, setCreatorNameInput] = useState('');
+  const [creatorCpfInput, setCreatorCpfInput] = useState('');
+  const [creatorPasswordInput, setCreatorPasswordInput] = useState('');
+  const [creatorRecoverMode, setCreatorRecoverMode] = useState(false);
+  const [creatorNewPassword, setCreatorNewPassword] = useState('');
 
   const [isGymLockedFromQr, setIsGymLockedFromQr] = useState(false);
   const [qrLinkedAcademyName, setQrLinkedAcademyName] = useState<string | null>(
@@ -298,6 +309,10 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       setErrorMsg('Informe o Código da Academia ou do Personal fornecido pelo seu professor.');
       return;
     }
+    if (cleanAcademyCode === GALLERY_GYM_CODE) {
+      setErrorMsg('Este código é reservado à Galeria Global do app e não aceita cadastro de alunos.');
+      return;
+    }
     if (!cleanName) {
       setErrorMsg('Informe seu nome completo.');
       return;
@@ -419,11 +434,157 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         academyCode: academy.gymCode,
         academyName: academy.name,
         academyLogo: academy.logoUrl,
+        isCreator: academy.gymCode === GALLERY_GYM_CODE,
         loggedInAt: new Date().toISOString(),
       });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const openCreatorPanel = async () => {
+    setProfMode('creator');
+    setCreatorRecoverMode(false);
+    setCreatorPasswordInput('');
+    setCreatorNewPassword('');
+    setErrorMsg('');
+    setSuccessMsg('');
+    setCreatorChecking(true);
+    try {
+      const existing = await fetchAcademyByCode(GALLERY_GYM_CODE);
+      setCreatorAccount(existing);
+    } finally {
+      setCreatorChecking(false);
+    }
+  };
+
+  const handleCreatorSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    if (!creatorAccount) {
+      const cleanName = creatorNameInput.trim();
+      const cpfDigits = normalizeCpf(creatorCpfInput);
+      if (!cleanName) {
+        setErrorMsg('Informe o nome do criador do aplicativo.');
+        return;
+      }
+      if (cpfDigits.length !== 11) {
+        setErrorMsg('Informe um CPF válido (11 dígitos) para proteger seu acesso.');
+        return;
+      }
+      if (creatorPasswordInput.length < 4) {
+        setErrorMsg('Defina uma senha mestra com pelo menos 4 caracteres.');
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        const nowIso = new Date().toISOString();
+        const masterAcademy: Academy = {
+          code: GALLERY_GYM_CODE,
+          gymCode: GALLERY_GYM_CODE,
+          name: 'Galeria Oficial FitTrack',
+          professorName: cleanName,
+          professorCpf: cpfDigits,
+          password: creatorPasswordInput,
+          createdAt: nowIso,
+        };
+        const res = await saveAcademy(masterAcademy);
+        if (!res.syncedToCloud) {
+          setErrorMsg(
+            'Não foi possível salvar o acesso do criador no Firebase. Verifique sua conexão e tente novamente.'
+          );
+          return;
+        }
+        await saveStudentProfile({
+          cpf: cpfDigits,
+          formattedCpf: formatCpfMask(cpfDigits),
+          gymCode: GALLERY_GYM_CODE,
+          academyCode: GALLERY_GYM_CODE,
+          academyName: 'Galeria Oficial FitTrack',
+          role: 'prof',
+          name: cleanName,
+          password: creatorPasswordInput,
+          birthDate: '',
+          age: 0,
+          phone: '',
+          biologicalSex: 'Masculino',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        });
+
+        onLogin({
+          role: 'professor',
+          name: cleanName,
+          identifier: GALLERY_GYM_CODE,
+          cpf: cpfDigits,
+          academyCode: GALLERY_GYM_CODE,
+          academyName: 'Galeria Oficial FitTrack',
+          isCreator: true,
+          loggedInAt: nowIso,
+        });
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    if (creatorRecoverMode) {
+      const cleanName = normalizeNameCompare(creatorNameInput);
+      const cpfDigits = normalizeCpf(creatorCpfInput);
+      if (normalizeNameCompare(creatorAccount.professorName) !== cleanName) {
+        setErrorMsg('O nome informado não confere com o cadastro do criador.');
+        return;
+      }
+      if (creatorAccount.professorCpf && creatorAccount.professorCpf !== cpfDigits) {
+        setErrorMsg('O CPF informado não confere com o cadastro do criador.');
+        return;
+      }
+      if (creatorNewPassword.length < 4) {
+        setErrorMsg('A nova senha deve ter pelo menos 4 caracteres.');
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        const res = await updateAcademyPassword(creatorAccount, creatorNewPassword);
+        if (!res.syncedToCloud) {
+          setErrorMsg('Não foi possível redefinir a senha no Firebase.');
+          return;
+        }
+        setCreatorAccount({ ...creatorAccount, password: creatorNewPassword });
+        setCreatorRecoverMode(false);
+        setCreatorNewPassword('');
+        setCreatorPasswordInput('');
+        setSuccessMsg('Senha do Criador redefinida com sucesso.');
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    if (!creatorPasswordInput) {
+      setErrorMsg('Informe a senha do criador.');
+      return;
+    }
+    if (creatorAccount.password !== creatorPasswordInput) {
+      setErrorMsg('Senha incorreta para o acesso do criador.');
+      return;
+    }
+
+    onLogin({
+      role: 'professor',
+      name: creatorAccount.professorName,
+      identifier: GALLERY_GYM_CODE,
+      cpf: creatorAccount.professorCpf,
+      academyCode: GALLERY_GYM_CODE,
+      academyName: creatorAccount.name,
+      academyLogo: creatorAccount.logoUrl,
+      isCreator: true,
+      loggedInAt: new Date().toISOString(),
+    });
   };
 
   const handleProfessorRegister = async (e: FormEvent) => {
@@ -441,6 +602,10 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
     }
     if (cleanCode.length < 3) {
       setErrorMsg('Defina um código de convite com pelo menos 3 caracteres.');
+      return;
+    }
+    if (cleanCode === GALLERY_GYM_CODE) {
+      setErrorMsg('Este código é reservado à Galeria Oficial do Criador. Escolha outro código.');
       return;
     }
     if (!cleanProfName) {
@@ -1049,6 +1214,250 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                 >
                   Esqueci a senha ou quero excluir uma academia
                 </button>
+
+                <div className="pt-2 border-t border-zinc-800/80">
+                  <button
+                    type="button"
+                    onClick={() => void openCreatorPanel()}
+                    className="w-full min-h-[40px] px-3 py-2 rounded-xl border border-orange-500/30 bg-orange-500/5 hover:bg-orange-500/15 text-xs font-semibold text-orange-300 flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span>Acesso do Criador · Gerenciar Galeria Global</span>
+                  </button>
+                </div>
+              </form>
+            ) : profMode === 'creator' ? (
+              <form onSubmit={handleCreatorSubmit} className="space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-orange-400">
+                    <Sparkles className="w-4 h-4 shrink-0" aria-hidden="true" />
+                    <span>
+                      {creatorChecking
+                        ? 'Verificando cadastro...'
+                        : creatorAccount
+                          ? creatorRecoverMode
+                            ? 'Redefinir senha do Criador'
+                            : 'Acesso do Criador · Galeria Oficial'
+                          : 'Configurar Acesso do Criador'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfMode('login');
+                      setCreatorRecoverMode(false);
+                      setErrorMsg('');
+                    }}
+                    className="text-xs text-zinc-400 hover:text-zinc-200 cursor-pointer"
+                  >
+                    Voltar
+                  </button>
+                </div>
+
+                {creatorChecking ? (
+                  <p className="text-xs text-zinc-400 py-4 text-center">
+                    Consultando Galeria Oficial no Firebase...
+                  </p>
+                ) : !creatorAccount ? (
+                  <>
+                    <p className="text-xs text-zinc-400 leading-relaxed">
+                      Primeiro acesso do criador do app. Defina seus dados e sua senha mestra para cadastrar os exercícios da Galeria Global.
+                    </p>
+
+                    <div>
+                      <label
+                        htmlFor="creator-setup-name"
+                        className="block text-xs font-medium text-zinc-300 mb-1"
+                      >
+                        Nome do Criador
+                      </label>
+                      <input
+                        id="creator-setup-name"
+                        type="text"
+                        required
+                        placeholder="Seu nome completo"
+                        value={creatorNameInput}
+                        onChange={(e) => setCreatorNameInput(e.target.value)}
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-orange-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="creator-setup-cpf"
+                        className="block text-xs font-medium text-zinc-300 mb-1"
+                      >
+                        CPF do Criador (usado para recuperação de senha)
+                      </label>
+                      <input
+                        id="creator-setup-cpf"
+                        type="text"
+                        inputMode="numeric"
+                        required
+                        placeholder="000.000.000-00"
+                        value={creatorCpfInput}
+                        onChange={(e) => setCreatorCpfInput(formatCpfMask(e.target.value))}
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm font-mono tabular-nums text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-orange-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="creator-setup-pass"
+                        className="block text-xs font-medium text-zinc-300 mb-1"
+                      >
+                        Senha mestra do Criador
+                      </label>
+                      <input
+                        id="creator-setup-pass"
+                        type="password"
+                        required
+                        autoComplete="new-password"
+                        placeholder="Mínimo 4 caracteres"
+                        value={creatorPasswordInput}
+                        onChange={(e) => setCreatorPasswordInput(e.target.value)}
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-orange-500"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className="w-full min-h-[48px] rounded-xl bg-orange-500 hover:bg-orange-400 disabled:opacity-60 text-zinc-950 text-sm font-bold transition-colors cursor-pointer"
+                    >
+                      {isLoading ? 'Configurando...' : 'Ativar Galeria do Criador e Entrar'}
+                    </button>
+                  </>
+                ) : creatorRecoverMode ? (
+                  <>
+                    <div>
+                      <label
+                        htmlFor="creator-rec-name"
+                        className="block text-xs font-medium text-zinc-300 mb-1"
+                      >
+                        Nome do Criador cadastrado
+                      </label>
+                      <input
+                        id="creator-rec-name"
+                        type="text"
+                        required
+                        placeholder="Exatamente como cadastrado"
+                        value={creatorNameInput}
+                        onChange={(e) => setCreatorNameInput(e.target.value)}
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-orange-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="creator-rec-cpf"
+                        className="block text-xs font-medium text-zinc-300 mb-1"
+                      >
+                        CPF cadastrado
+                      </label>
+                      <input
+                        id="creator-rec-cpf"
+                        type="text"
+                        inputMode="numeric"
+                        required
+                        placeholder="000.000.000-00"
+                        value={creatorCpfInput}
+                        onChange={(e) => setCreatorCpfInput(formatCpfMask(e.target.value))}
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm font-mono tabular-nums text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-orange-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="creator-rec-pass"
+                        className="block text-xs font-medium text-zinc-300 mb-1"
+                      >
+                        Nova senha mestra
+                      </label>
+                      <input
+                        id="creator-rec-pass"
+                        type="password"
+                        required
+                        placeholder="Mínimo 4 caracteres"
+                        value={creatorNewPassword}
+                        onChange={(e) => setCreatorNewPassword(e.target.value)}
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-orange-500"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreatorRecoverMode(false);
+                          setErrorMsg('');
+                        }}
+                        className="min-h-[44px] px-4 py-2 rounded-xl border border-zinc-700 text-xs font-semibold text-zinc-300 hover:text-zinc-100 cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isLoading}
+                        className="min-h-[44px] px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 disabled:opacity-60 text-zinc-950 text-xs font-bold cursor-pointer"
+                      >
+                        {isLoading ? 'Salvando...' : 'Redefinir senha'}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="rounded-xl bg-[#0b0c0e] border border-zinc-800 px-3.5 py-2.5 text-xs">
+                      <span className="text-zinc-400">Responsável: </span>
+                      <strong className="text-zinc-100">{creatorAccount.professorName}</strong>
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="creator-login-pass"
+                        className="block text-xs font-medium text-zinc-300 mb-1"
+                      >
+                        Senha mestra do Criador
+                      </label>
+                      <div className="relative">
+                        <input
+                          id="creator-login-pass"
+                          type="password"
+                          required
+                          autoComplete="current-password"
+                          placeholder="Digite sua senha mestra"
+                          value={creatorPasswordInput}
+                          onChange={(e) => setCreatorPasswordInput(e.target.value)}
+                          className="w-full min-h-[44px] pl-3.5 pr-10 py-2 rounded-xl bg-[#0b0c0e] border border-zinc-700 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-orange-500"
+                        />
+                        <Lock
+                          className="w-4 h-4 text-zinc-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                          aria-hidden="true"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className="w-full min-h-[48px] rounded-xl bg-orange-500 hover:bg-orange-400 disabled:opacity-60 text-zinc-950 text-sm font-bold transition-colors cursor-pointer"
+                    >
+                      {isLoading ? 'Entrando...' : 'Gerenciar Galeria Global'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCreatorRecoverMode(true);
+                        setErrorMsg('');
+                        setSuccessMsg('');
+                      }}
+                      className="w-full min-h-[40px] text-xs font-medium text-zinc-400 hover:text-orange-300 transition-colors cursor-pointer"
+                    >
+                      Esqueci a senha do Criador
+                    </button>
+                  </>
+                )}
               </form>
             ) : profMode === 'recover' ? (
               <form onSubmit={handleResetAcademyPassword} className="space-y-3.5">
