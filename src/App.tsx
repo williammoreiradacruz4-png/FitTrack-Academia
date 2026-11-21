@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BellRing,
   ClipboardList,
@@ -163,6 +163,7 @@ export default function App() {
   const [gymMissingInCloud, setGymMissingInCloud] = useState(false);
   const [syncWarning, setSyncWarning] = useState('');
   const [showSplash, setShowSplash] = useState(true);
+  const handleFinishSplash = useCallback(() => setShowSplash(false), []);
 
   const uploadTargetIdRef = useRef<string | null>(null);
   const hiddenFileInputRef = useRef<HTMLInputElement>(null);
@@ -854,7 +855,7 @@ export default function App() {
   if (showSplash) {
     return (
       <>
-        <SplashScreen durationMs={5000} onFinish={() => setShowSplash(false)} />
+        <SplashScreen durationMs={5000} onFinish={handleFinishSplash} />
         <OfflineIndicator />
       </>
     );

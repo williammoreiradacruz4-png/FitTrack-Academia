@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface SplashScreenProps {
   onFinish: () => void;
@@ -7,32 +7,56 @@ interface SplashScreenProps {
 
 export function SplashScreen({ onFinish, durationMs = 5000 }: SplashScreenProps) {
   const [isLeaving, setIsLeaving] = useState(false);
-  const [progressStarted, setProgressStarted] = useState(false);
+  const [logoVisible, setLogoVisible] = useState(false);
+
+  const onFinishRef = useRef(onFinish);
+  onFinishRef.current = onFinish;
+
+  const hasFinishedRef = useRef(false);
+  const leaveTimerRef = useRef<number | null>(null);
+  const doneTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const startFrame = window.requestAnimationFrame(() => {
-      setProgressStarted(true);
+      setLogoVisible(true);
     });
 
     const fadeOutMs = 400;
-    const leaveTimer = window.setTimeout(() => {
+    leaveTimerRef.current = window.setTimeout(() => {
       setIsLeaving(true);
     }, Math.max(0, durationMs - fadeOutMs));
 
-    const doneTimer = window.setTimeout(() => {
-      onFinish();
+    doneTimerRef.current = window.setTimeout(() => {
+      if (hasFinishedRef.current) return;
+      hasFinishedRef.current = true;
+      onFinishRef.current();
     }, durationMs);
 
     return () => {
       window.cancelAnimationFrame(startFrame);
-      window.clearTimeout(leaveTimer);
-      window.clearTimeout(doneTimer);
+      if (leaveTimerRef.current !== null) {
+        window.clearTimeout(leaveTimerRef.current);
+      }
+      if (doneTimerRef.current !== null) {
+        window.clearTimeout(doneTimerRef.current);
+      }
     };
-  }, [durationMs, onFinish]);
+  }, [durationMs]);
 
   const handleSkip = () => {
+    if (hasFinishedRef.current) return;
+    if (leaveTimerRef.current !== null) {
+      window.clearTimeout(leaveTimerRef.current);
+    }
+    if (doneTimerRef.current !== null) {
+      window.clearTimeout(doneTimerRef.current);
+    }
     setIsLeaving(true);
-    window.setTimeout(onFinish, 250);
+    doneTimerRef.current = window.setTimeout(() => {
+      if (hasFinishedRef.current) return;
+      hasFinishedRef.current = true;
+      onFinishRef.current();
+    }, 220);
   };
 
   return (
@@ -53,8 +77,8 @@ export function SplashScreen({ onFinish, durationMs = 5000 }: SplashScreenProps)
       <div className="relative flex flex-col items-center text-center max-w-xs w-full">
         {/* PWA Logo Container */}
         <div
-          className={`w-44 h-44 sm:w-52 sm:h-52 rounded-3xl bg-white p-3.5 shadow-2xl shadow-black/70 ring-2 ring-orange-500/40 flex items-center justify-center transition-transform duration-500 ease-out ${
-            progressStarted ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+          className={`w-44 h-44 sm:w-52 sm:h-52 rounded-3xl bg-white p-3.5 shadow-2xl shadow-black/70 ring-2 ring-orange-500/40 flex items-center justify-center transition-all duration-500 ease-out ${
+            logoVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
           }`}
         >
           <img
@@ -70,13 +94,12 @@ export function SplashScreen({ onFinish, durationMs = 5000 }: SplashScreenProps)
         </h1>
         <p className="text-sm text-zinc-400 mt-1.5">Sua ficha de treino sempre à mão</p>
 
-        {/* 5-second compositor-only progress bar */}
+        {/* Continuous keyframe progress bar that never resets on parent re-renders */}
         <div className="w-full max-w-[220px] h-1.5 bg-zinc-800 rounded-full overflow-hidden mt-7">
           <div
-            className="h-full bg-orange-500 origin-left transition-transform ease-linear"
+            className="h-full bg-orange-500 origin-left"
             style={{
-              transform: progressStarted ? 'scaleX(1)' : 'scaleX(0)',
-              transitionDuration: `${durationMs}ms`,
+              animation: `splash-progress ${durationMs}ms linear forwards`,
             }}
           />
         </div>

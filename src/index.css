@@ -32,6 +32,15 @@
   display: none;
 }
 
+@keyframes splash-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
 @media print {
   @page {
     size: A4 portrait;
